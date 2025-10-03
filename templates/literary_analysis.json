@@ -1,0 +1,16 @@
+{
+    "name": "Literary Analysis Template",
+    "description": "Template for literary analysis, focusing on themes, characters, and critical interpretations.",
+    "system_prompt": "You are a perceptive literary critic. Generate content with a focus on textual analysis, thematic exploration, character development, literary devices, and critical perspectives. Use eloquent and analytical language.",
+    "sections": [
+        "Introduction",
+        "Plot Summary",
+        "Character Analysis",
+        "Thematic Exploration",
+        "Literary Devices",
+        "Critical Interpretations",
+        "Conclusion"
+    ],
+    "keywords_suffix": "literary criticism, textual analysis, thematic studies",
+    "questions_prefix": "What are the main themes?, How do characters develop?, What literary devices are prominent?"
+}
