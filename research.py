@@ -44,8 +44,6 @@ def app():
         if current_template:
             st.info(f"Template '{current_template['name']}' selected: {current_template['description']}")
             # Display template details in an expander
-            with st.expander(f"Details for {current_template['name']}"):
-                st.json(current_template)
 
     # Internal API Key and Model Management
     api_keys = {
@@ -105,7 +103,7 @@ def app():
 
     # Determine system prompt and sections based on template
     system_prompt_to_use = "You are a helpful research assistant. Provide detailed and well-structured information."
-    sections_to_generate = ["Introduction", "Literature Review", "Methodology", "Results", "Discussion", "Conclusion"]
+    sections_to_generate = ["Table of Contents", "Introduction", "Literature Review", "Methodology", "Results", "Discussion", "Conclusion"]
 
     if current_template:
         system_prompt_to_use = current_template.get("system_prompt", system_prompt_to_use)
@@ -245,106 +243,72 @@ def app():
                     st.markdown(SessionStateManager.get_value('executive_summary'))
             
 
-        # --- Enhanced Research Capabilities ---
-        st.divider()
-        st.subheader("🔍 Enhanced Research Capabilities")
-
-        # Web Scraping Integration
-        if st.button("Perform Web Research (Academic Sources)", key="web_research_btn", use_container_width=True):
-            try:
-                SessionStateManager.set_generation_in_progress(True)
-                with st.spinner(f"🌐 Searching academic sources for '{topic}'..."):
-                    research_gen = ResearchGenerator(
-                        topic=topic,
-                        keywords=keywords,
-                        research_questions=research_questions,
-                        api_keys=api_keys,
-                        system_prompt="You are a helpful research assistant. Provide detailed and well-structured information.",
-                        model_name=selected_model_name
-                    )
-                    search_query = f"{topic} {keywords_input} academic papers"
-                    academic_sources = research_gen.perform_web_research(search_query, num_sources=5)
-                    SessionStateManager.set_value('academic_sources', academic_sources)
-                    if academic_sources:
-                        st.success(f"✅ Found {len(academic_sources)} academic sources!")
-                        st.info("🌐 Note: Web scraping is currently simulated with dummy URLs. For real-world data, integrate with actual academic search APIs and web content.")
-                    else:
-                        st.warning("⚠️ No academic sources found for your query.")
-            except Exception as e:
-                st.error(f"❌ Error during web research: {str(e)}")
-                logging.error(f"Web research error: {e}")
-            finally:
-                SessionStateManager.set_generation_in_progress(False)
-        
-        if SessionStateManager.get_value('academic_sources'):
-            st.markdown("### Found Academic Sources:")
-            for i, source in enumerate(SessionStateManager.get_value('academic_sources')):
-                st.markdown(f"{i+1}. [{source['title']}]({source['url']})")
-                if st.button(f"Scrape Content from Source {i+1}", key=f"scrape_source_{i+1}_btn"):
-                    try:
-                        SessionStateManager.set_generation_in_progress(True)
-                        with st.spinner(f"Scraping content from {source['url']}..."):
-                            research_gen = ResearchGenerator(
-                                topic=topic,
-                                keywords=keywords,
-                                research_questions=research_questions,
-                                api_keys=api_keys,
-                                system_prompt="You are a helpful research assistant. Provide detailed and well-structured information.",
-                                model_name=selected_model_name
-                            )
-                            scraped_content = research_gen.scrape_source_content(source['url'])
-                            if scraped_content:
-                                SessionStateManager.set_value(f'scraped_content_{i}', scraped_content)
-                                st.success(f"✅ Content scraped from {source['url']}!")
-                                st.info("🌐 Note: Content scraping from dummy URLs is simulated. For real-world data, ensure URLs are valid and accessible.")
-                                with st.expander(f"Scraped Content from {source['title']}"):
-                                    st.text_area("Content", scraped_content, height=300)
-                            else:
-                                st.warning(f"⚠️ Failed to scrape content from {source['url']}.")
-                    except Exception as e:
-                        st.error(f"❌ Error scraping content: {str(e)}")
-                        logging.error(f"Scraping error: {e}")
-                    finally:
-                        SessionStateManager.set_generation_in_progress(False)
-        
-        # Citation Management
-        if SessionStateManager.get_value('academic_sources'):
-            st.markdown("---")
-            st.markdown("### 📚 Citation Management")
-            citation_style = st.selectbox(
-                "Choose Citation Style:",
-                ["APA", "MLA", "Chicago"],
-                index=0,
-                help="Select the citation style for your bibliography."
-            )
-            if st.button("Generate Bibliography", key="gen_bib_btn", use_container_width=True):
+            # Readability Analysis
+            if st.button("Analyze Readability", key="analyze_readability_btn", use_container_width=True):
                 try:
-                    citation_manager = CitationManager()
-                    # For demonstration, we'll use dummy data for author, year, publisher
-                    # In a real scenario, this would be extracted during web scraping or from metadata
-                    formatted_sources = []
-                    for source in SessionStateManager.get_value('academic_sources'):
-                        # Dummy data for demonstration
-                        formatted_sources.append({
-                            "title": source['title'],
-                            "url": source['url'],
-                            "author": "AI Research Bot", 
-                            "year": "2025",
-                            "publisher": "Automated Research Press",
-                            "container": "Online Article" # For MLA
-                        })
-                    
-                    bibliography = citation_manager.generate_bibliography(formatted_sources, style=citation_style)
-                    SessionStateManager.set_value('bibliography', bibliography)
-                    st.success(f"✅ Bibliography generated in {citation_style} style!")
-                    st.info("📝 Note: Citation details (author, year, publisher) are currently dummy data. For real-world accuracy, these would be extracted from actual source metadata.")
+                    SessionStateManager.set_generation_in_progress(True)
+                    with st.spinner("📊 Analyzing readability..."):
+                        full_report_content = "\n\n".join([f"## {title}\n{content}" for title, content in sections_content.items()])
+                        analyzer = ContentAnalyzer()
+                        readability_scores = analyzer.analyze_readability(full_report_content)
+                        SessionStateManager.set_value('readability_scores', readability_scores)
+                        st.success("✅ Readability analysis complete!")
                 except Exception as e:
-                    st.error(f"❌ Error generating bibliography: {str(e)}")
-                    logging.error(f"Bibliography generation error: {e}")
+                    st.error(f"❌ Error analyzing readability: {str(e)}")
+                    logging.error(f"Readability analysis error: {e}")
+                finally:
+                    SessionStateManager.set_generation_in_progress(False)
             
-            if SessionStateManager.get_value('bibliography'):
-                with st.expander("Generated Bibliography"):
-                    st.markdown(SessionStateManager.get_value('bibliography'))
+            if SessionStateManager.get_value('readability_scores'):
+                with st.expander("Readability Scores"):
+                    scores = SessionStateManager.get_value('readability_scores')
+                    st.markdown("---")
+                    st.markdown("### Readability Metrics:")
+                    for metric, value in scores.items():
+                        if isinstance(value, dict):
+                            st.markdown(f"**{metric.replace('_', ' ').title()}:**")
+                            for sub_metric, sub_value in value.items():
+                                st.markdown(f"- {sub_metric.replace('_', ' ').title()}: `{sub_value:.2f}`")
+                        else:
+                            st.markdown(f"- {metric.replace('_', ' ').title()}: `{value:.2f}`")
+                    st.markdown("---")
+
+            # Keyword Optimization
+            if st.button("Analyze Keywords", key="analyze_keywords_btn", use_container_width=True):
+                try:
+                    SessionStateManager.set_generation_in_progress(True)
+                    with st.spinner("🔑 Analyzing keywords..."):
+                        full_report_content = "\n\n".join([f"## {title}\n{content}" for title, content in sections_content.items()])
+                        analyzer = ContentAnalyzer()
+                        keyword_analysis = analyzer.analyze_keywords(full_report_content, keywords)
+                        SessionStateManager.set_value('keyword_analysis', keyword_analysis)
+                        st.success("✅ Keyword analysis complete!")
+                except Exception as e:
+                    st.error(f"❌ Error analyzing keywords: {str(e)}")
+                    logging.error(f"Keyword analysis error: {e}")
+                finally:
+                    SessionStateManager.set_generation_in_progress(False)
+            
+            if SessionStateManager.get_value('keyword_analysis'):
+                with st.expander("Keyword Analysis"):
+                    analysis = SessionStateManager.get_value('keyword_analysis')
+                    st.markdown("---")
+                    st.markdown("### Keyword Analysis Results:")
+                    if analysis.get('keywords_found'):
+                        st.markdown("**Keywords Found:**")
+                        for keyword, count in analysis['keywords_found'].items():
+                            st.markdown(f"- `{keyword}`: {count} occurrences")
+                    if analysis.get('missing_keywords'):
+                        st.markdown("**Missing Keywords (from your input):**")
+                        for keyword in analysis['missing_keywords']:
+                            st.markdown(f"- `{keyword}`")
+                    if analysis.get('suggestions'):
+                        st.markdown("**Suggestions:**")
+                        for suggestion in analysis['suggestions']:
+                            st.markdown(f"- {suggestion}")
+                    st.markdown("---")
+
+
 
         # --- Export Options ---
         st.divider()
