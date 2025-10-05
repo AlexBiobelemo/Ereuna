@@ -109,6 +109,7 @@ class ResearchGenerator:
         for attempt in range(self.max_retries):
             try:
                 logging.info(f"Attempting to generate {section_name} with {self.model_name} (attempt {attempt + 1}/{self.max_retries})")
+                logging.info(f"Prompt for {section_name}: {prompt[:500]}...") # Log first 500 chars of prompt
                 
                 response_text = ""
                 if self.model_name.startswith('gemini') and self.gemini_client:
@@ -374,6 +375,5 @@ class ResearchGenerator:
         except Exception as e:
             logging.error(f"Unexpected error in generate_summary: {e}")
             return f"Error generating executive summary: {str(e)}"
-
 
 
