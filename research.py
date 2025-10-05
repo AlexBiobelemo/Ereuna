@@ -9,6 +9,7 @@ from utils.session_state_manager import SessionStateManager
 from utils.citation_manager import CitationManager # Import CitationManager
 from utils.content_analyzer import ContentAnalyzer # Import ContentAnalyzer
 from utils.template_manager import TemplateManager # Import TemplateManager
+from utils.chat_manager import ChatManager # Import ChatManager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -171,6 +172,11 @@ def app():
             
             # CRITICAL: Store research data in session state immediately
             SessionStateManager.store_research_data(sections_content, topic, keywords_input, research_questions_input, selected_model_name)
+
+            # Initialize and load research content into ChatManager
+            chat_manager = ChatManager(api_keys=api_keys, model_name=selected_model_name)
+            chat_manager.load_research_content(sections_content)
+            SessionStateManager.set_value('chat_manager', chat_manager) # Store chat_manager in session state
 
             # --- Notes Management ---
             try:
@@ -421,7 +427,7 @@ def app():
                         notes_content = SessionStateManager.get_notes()
                         
                         if not notes_content:
-                            notes_content = "\n\n".join([f"## {title}\n{content}" 
+                            notes_content = "\n\n".join([f"## {title}\n{content}"
                                                         for title, content in sections_content.items()])
                         
                         txt_bytes = notes_content.encode('utf-8')
@@ -446,10 +452,41 @@ def app():
                     )
         
         # Success message
-        if (SessionStateManager.is_file_generated('pdf') or 
-            SessionStateManager.is_file_generated('pptx') or 
+        if (SessionStateManager.is_file_generated('pdf') or
+            SessionStateManager.is_file_generated('pptx') or
             SessionStateManager.is_file_generated('docx')):
             st.balloons()
+
+    # --- Chat Interface ---
+    st.divider()
+    st.subheader("💬 Research Chatbot")
+    st.info("Ask questions about the generated research report. The chatbot will only respond based on the content of the report.")
+
+    if SessionStateManager.get_value('research_generated', False):
+        chat_manager = SessionStateManager.get_value('chat_manager')
+        if chat_manager is None:
+            st.error("Chatbot not initialized. Please regenerate the report.")
+            return
+
+        if 'chat_history' not in st.session_state:
+            st.session_state.chat_history = []
+
+        for message in st.session_state.chat_history:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+        if prompt := st.chat_input("Ask a question about the research..."):
+            st.session_state.chat_history.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
+
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking..."):
+                    response = chat_manager.generate_chat_response(prompt)
+                    st.markdown(response)
+                    st.session_state.chat_history.append({"role": "assistant", "content": response})
+    else:
+        st.warning("Please generate a research report first to enable the chatbot.")
 
     # --- Display Errors ---
     error_msg = SessionStateManager.get_value('error_message')
