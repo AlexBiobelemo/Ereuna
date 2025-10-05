@@ -496,6 +496,7 @@ def app():
             with st.chat_message("assistant"):
                 with st.spinner("Thinking..."):
                     response = chat_manager.generate_chat_response(prompt)
+                    st.write(f"Type of chat_manager: {type(chat_manager)}") # Debugging line
                     st.markdown(response)
                     st.session_state.chat_history.append({"role": "assistant", "content": response})
     else:
