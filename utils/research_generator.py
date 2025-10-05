@@ -55,28 +55,28 @@ class ResearchGenerator:
         self.anthropic_client = None
 
         model_prefix = self.model_name.split('-')[0]
-        api_key = self.api_keys.get(model_prefix)
+        api_keys = self.api_keys.get(model_prefix)
 
-        if not api_key:
+        if not api_keys:
             logging.warning(f"API key not provided for model prefix: {model_prefix}. {self.model_name} will not be available.")
             return
 
         if model_prefix == 'gemini':
             try:
-                genai.configure(api_key=api_key)
+                genai.configure(api_keys=api_keys)
                 self.gemini_client = genai
                 logging.info("Successfully configured Gemini API")
             except Exception as e:
                 logging.error(f"Failed to configure Gemini API: {e}")
         elif model_prefix == 'gpt':
             try:
-                self.openai_client = OpenAI(api_key=api_key)
+                self.openai_client = OpenAI(api_keys=api_keys)
                 logging.info("Successfully configured OpenAI API")
             except Exception as e:
                 logging.error(f"Failed to configure OpenAI API: {e}")
         elif model_prefix == 'claude':
             try:
-                self.anthropic_client = Anthropic(api_key=api_key)
+                self.anthropic_client = Anthropic(api_keys=api_keys)
                 logging.info("Successfully configured Anthropic API")
             except Exception as e:
                 logging.error(f"Failed to configure Anthropic API: {e}")
@@ -374,3 +374,4 @@ class ResearchGenerator:
         except Exception as e:
             logging.error(f"Unexpected error in generate_summary: {e}")
             return f"Error generating executive summary: {str(e)}"
+
