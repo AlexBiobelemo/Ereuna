@@ -164,7 +164,7 @@ def app():
                     topic=topic,
                     keywords=keywords,
                     research_questions=research_questions,
-                    api_key=api_keys.get(selected_model_name.split('-')[0]), # Pass specific API key
+                    api_keys=api_keys, # Pass the entire api_keys dictionary
                     system_prompt=system_prompt_to_use,
                     model_name=selected_model_name
                 )
@@ -187,7 +187,7 @@ def app():
             SessionStateManager.store_research_data(sections_content, topic, keywords_input, research_questions_input, selected_model_name)
 
             # Initialize and load research content into ChatManager
-            chat_manager = ChatManager(api_key=api_keys.get(selected_model_name.split('-')[0]), model_name=selected_model_name) # Pass specific API key
+            chat_manager = ChatManager(api_keys=api_keys, model_name=selected_model_name) # Pass the entire api_keys dictionary
             chat_manager.load_research_content(sections_content)
             SessionStateManager.set_value('chat_manager', chat_manager) # Store chat_manager in session state
 
@@ -244,7 +244,7 @@ def app():
                             topic=topic,
                             keywords=keywords,
                             research_questions=research_questions,
-                            api_key=api_keys.get(selected_model_name.split('-')[0]), # Pass specific API key
+                            api_keys=api_keys, # Pass the entire api_keys dictionary
                             system_prompt="You are a helpful research assistant. Provide detailed and well-structured information.",
                             model_name=selected_model_name
                         )
