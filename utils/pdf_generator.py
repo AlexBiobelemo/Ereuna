@@ -153,9 +153,9 @@ class PdfGenerator(FPDF, HTMLMixin):
         segments = []
         pos = 0
         
-        # Pattern: Match **bold**, *italic*, or `code`
-        # Order matters: check ** before * to avoid splitting bold markers
-        pattern = r'(`[^`]+?`|\*\*[^\*]+?\*\*|\*[^\*\s][^\*]*?\*)'
+        # More aggressive pattern that catches bold/italic/code
+        # Check ** before single * to avoid breaking bold into italic
+        pattern = r'`([^`]+)`|\*\*([^\*]+?)\*\*|\*([^\*\s]+(?:[^\*]*[^\*\s])?)\*'
         
         for match in re.finditer(pattern, text):
             # Add plain text before the match
@@ -164,18 +164,16 @@ class PdfGenerator(FPDF, HTMLMixin):
                 if plain:
                     segments.append({'text': plain, 'style': ''})
             
-            matched = match.group(0)
-            
-            # Determine style and extract text
-            if matched.startswith('`') and matched.endswith('`'):
-                segments.append({'text': matched[1:-1], 'style': 'code'})
-            elif matched.startswith('**') and matched.endswith('**') and len(matched) > 4:
-                segments.append({'text': matched[2:-2], 'style': 'B'})
-            elif matched.startswith('*') and matched.endswith('*') and len(matched) > 2:
-                segments.append({'text': matched[1:-1], 'style': 'I'})
-            else:
-                # If pattern matched but doesn't fit criteria, treat as plain text
-                segments.append({'text': matched, 'style': ''})
+            # Check which group matched
+            if match.group(1):  # Code: `text`
+                segments.append({'text': match.group(1), 'style': 'code'})
+                logging.debug(f"Found code: {match.group(1)[:20]}")
+            elif match.group(2):  # Bold: **text**
+                segments.append({'text': match.group(2), 'style': 'B'})
+                logging.debug(f"Found bold: {match.group(2)[:20]}")
+            elif match.group(3):  # Italic: *text*
+                segments.append({'text': match.group(3), 'style': 'I'})
+                logging.debug(f"Found italic: {match.group(3)[:20]}")
             
             pos = match.end()
         
@@ -254,7 +252,7 @@ class PdfGenerator(FPDF, HTMLMixin):
             # Process content line by line
             lines = content.split('\n')
             
-            for line in lines:
+            for line_num, line in enumerate(lines):
                 line = line.rstrip()
                 
                 # Skip empty lines
@@ -263,14 +261,20 @@ class PdfGenerator(FPDF, HTMLMixin):
                     continue
                 
                 try:
+                    # DEBUG: Log the line being processed
+                    logging.debug(f"Processing line {line_num}: {line[:50]}...")
+                    
                     # Check for headers (#### or ###, etc.)
-                    header_match = re.match(r'^(#{1,6})\s+(.+)$', line)
+                    # Look for lines starting with # (with optional leading spaces)
+                    header_match = re.match(r'^\s*(#{1,6})\s+(.+)$', line)
                     if header_match:
                         level = len(header_match.group(1))
                         header_text = header_match.group(2)
                         
-                        # Size based on level
-                        size = max(18 - level * 2, 11)
+                        logging.info(f"Found header level {level}: {header_text[:30]}...")
+                        
+                        # Size based on level: # = 16pt, ## = 14pt, ### = 13pt, #### = 12pt
+                        size = max(17 - level, 11)
                         
                         self.ln(4)
                         self.set_font(self.font_name, 'B', size)
@@ -281,10 +285,12 @@ class PdfGenerator(FPDF, HTMLMixin):
                         self.ln(2)
                         continue
                     
-                    # Check for bullet points
-                    bullet_match = re.match(r'^[\*\-\+]\s+(.+)$', line)
+                    # Check for bullet points (with optional leading spaces)
+                    bullet_match = re.match(r'^\s*[\*\-\+]\s+(.+)$', line)
                     if bullet_match:
                         bullet_text = bullet_match.group(1)
+                        
+                        logging.debug(f"Found bullet: {bullet_text[:30]}...")
                         
                         # Render bullet
                         self.set_font(self.font_name, '', 12)
@@ -295,11 +301,13 @@ class PdfGenerator(FPDF, HTMLMixin):
                         self.ln(6)
                         continue
                     
-                    # Check for numbered lists
-                    numbered_match = re.match(r'^(\d+)\.\s+(.+)$', line)
+                    # Check for numbered lists (with optional leading spaces)
+                    numbered_match = re.match(r'^\s*(\d+)\.\s+(.+)$', line)
                     if numbered_match:
                         number = numbered_match.group(1)
                         numbered_text = numbered_match.group(2)
+                        
+                        logging.debug(f"Found numbered item: {number}. {numbered_text[:30]}...")
                         
                         # Render number
                         self.set_font(self.font_name, '', 12)
@@ -312,11 +320,13 @@ class PdfGenerator(FPDF, HTMLMixin):
                         continue
                     
                     # Regular paragraph with inline formatting
+                    logging.debug(f"Regular paragraph: {line[:30]}...")
                     self._render_paragraph_with_formatting(line)
                     self.ln(7)
                     
                 except Exception as e:
-                    logging.error(f"Error rendering line in '{title}': {e}")
+                    logging.error(f"Error rendering line {line_num} in '{title}': {e}")
+                    logging.error(f"Problematic line: {line}")
                     # Fallback to plain text
                     self.set_font(self.font_name, "", 12)
                     self.multi_cell(0, 6, self._normalize_text(line))
