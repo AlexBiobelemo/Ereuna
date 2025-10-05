@@ -133,193 +133,73 @@ class PdfGenerator(FPDF, HTMLMixin):
                 logging.error(f"ASCII fallback failed: {fallback_error}")
                 return "[Text encoding error]"
 
-    def _parse_markdown_line(self, line):
-        """Parse a line for markdown formatting and return formatted segments."""
-        segments = []
-        
-        # Check for headers first (must be at start of line)
-        header_match = re.match(r'^(#{1,6})\s+(.+)$', line)
-        if header_match:
-            level = len(header_match.group(1))
-            text = header_match.group(2).strip()
-            return [{'type': 'header', 'level': level, 'text': text}]
-        
-        # Check for bullet points
-        bullet_match = re.match(r'^[\*\-\+]\s+(.+)$', line)
-        if bullet_match:
-            text = bullet_match.group(1).strip()
-            # Process inline formatting in bullet text
-            return [{'type': 'bullet', 'segments': self._parse_inline_formatting(text)}]
-        
-        # Check for numbered lists
-        numbered_match = re.match(r'^(\d+)\.\s+(.+)$', line)
-        if numbered_match:
-            number = numbered_match.group(1)
-            text = numbered_match.group(2).strip()
-            return [{'type': 'numbered', 'number': number, 'segments': self._parse_inline_formatting(text)}]
-        
-        # Regular paragraph - parse inline formatting
-        return [{'type': 'paragraph', 'segments': self._parse_inline_formatting(line)}]
+    def _strip_markdown(self, text):
+        """Remove markdown formatting from text (for TOC and bookmarks)."""
+        # Remove bold
+        text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+        # Remove italic
+        text = re.sub(r'\*(.+?)\*', r'\1', text)
+        # Remove code
+        text = re.sub(r'`(.+?)`', r'\1', text)
+        # Remove headers
+        text = re.sub(r'^#{1,6}\s+', '', text)
+        return text.strip()
 
     def _parse_inline_formatting(self, text):
-        """Parse inline markdown formatting (bold, italic, code)."""
+        """Parse inline markdown with improved regex."""
         segments = []
         pos = 0
         
-        # Pattern to match bold, italic, or code
-        # Priority: code (`...`), bold (**...**), italic (*...*)
-        pattern = r'(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)'
+        # Match bold (**text**), italic (*text*), code (`text`)
+        # Use non-greedy matching and handle word boundaries
+        pattern = r'(`[^`]+?`|\*\*[^\*]+?\*\*|\*[^\*]+?\*)'
         
-        for match in re.finditer(pattern, text):
-            # Add text before the match as normal text
+        matches = list(re.finditer(pattern, text))
+        
+        for match in matches:
+            # Add text before match
             if match.start() > pos:
-                segments.append({
-                    'style': '',
-                    'text': text[pos:match.start()]
-                })
+                plain_text = text[pos:match.start()]
+                if plain_text:
+                    segments.append({'style': '', 'text': plain_text})
             
-            matched_text = match.group(1)
+            matched = match.group(0)
             
-            # Determine the style
-            if matched_text.startswith('`') and matched_text.endswith('`'):
-                # Code (inline)
-                segments.append({
-                    'style': 'code',
-                    'text': matched_text[1:-1]
-                })
-            elif matched_text.startswith('**') and matched_text.endswith('**'):
-                # Bold
-                segments.append({
-                    'style': 'B',
-                    'text': matched_text[2:-2]
-                })
-            elif matched_text.startswith('*') and matched_text.endswith('*'):
-                # Italic
-                segments.append({
-                    'style': 'I',
-                    'text': matched_text[1:-1]
-                })
+            # Determine style
+            if matched.startswith('`') and matched.endswith('`'):
+                segments.append({'style': 'code', 'text': matched[1:-1]})
+            elif matched.startswith('**') and matched.endswith('**'):
+                segments.append({'style': 'B', 'text': matched[2:-2]})
+            elif matched.startswith('*') and matched.endswith('*'):
+                segments.append({'style': 'I', 'text': matched[1:-1]})
             
             pos = match.end()
         
         # Add remaining text
         if pos < len(text):
-            segments.append({
-                'style': '',
-                'text': text[pos:]
-            })
+            remaining = text[pos:]
+            if remaining:
+                segments.append({'style': '', 'text': remaining})
         
-        return segments
+        return segments if segments else [{'style': '', 'text': text}]
 
-    def _render_formatted_line(self, parsed_line):
-        """Render a parsed line with proper formatting."""
-        for item in parsed_line:
-            if item['type'] == 'header':
-                # Render header
-                level = item['level']
-                size = max(18 - level * 2, 12)  # Decrease size with level
-                self.ln(3)
-                self.set_font(self.font_name, "B", size)
-                self.multi_cell(0, 8, self._normalize_text(item['text']))
-                self.ln(2)
-                self.set_font(self.font_name, "", 12)
-                
-            elif item['type'] == 'bullet':
-                # Render bullet point
-                x_start = self.get_x()
-                y_start = self.get_y()
-                
-                # Add bullet character
-                self.set_font(self.font_name, "", 12)
-                self.cell(10, 6, self._normalize_text("•"), 0, 0)
-                
-                # Render the text with inline formatting
-                self._render_inline_segments(item['segments'], indent=10)
-                self.ln(2)
-                
-            elif item['type'] == 'numbered':
-                # Render numbered list
-                self.set_font(self.font_name, "", 12)
-                self.cell(10, 6, self._normalize_text(f"{item['number']}."), 0, 0)
-                
-                # Render the text with inline formatting
-                self._render_inline_segments(item['segments'], indent=10)
-                self.ln(2)
-                
-            elif item['type'] == 'paragraph':
-                # Render paragraph with inline formatting
-                self._render_inline_segments(item['segments'])
-                self.ln(5)
-
-    def _render_inline_segments(self, segments, indent=0):
-        """Render inline formatted text segments."""
-        if not segments:
-            return
-        
-        x_start = self.get_x() + indent
-        y_start = self.get_y()
-        max_width = self.w - self.r_margin - x_start
-        
-        current_line = []
-        current_width = 0
-        
+    def _write_formatted_text(self, segments, line_height=6):
+        """Write text with mixed formatting on the same line."""
         for segment in segments:
             style = segment['style']
             text = segment['text']
             
-            # Set font style
             if style == 'B':
-                self.set_font(self.font_name, "B", 12)
+                self.set_font(self.font_name, 'B', 12)
             elif style == 'I':
-                self.set_font(self.font_name, "I", 12)
+                self.set_font(self.font_name, 'I', 12)
             elif style == 'code':
-                self.set_font("Courier", "", 11)
+                self.set_font('Courier', '', 11)
             else:
-                self.set_font(self.font_name, "", 12)
+                self.set_font(self.font_name, '', 12)
             
-            # Word wrap handling
-            words = text.split(' ')
-            for i, word in enumerate(words):
-                if i > 0:
-                    word = ' ' + word
-                    
-                word_width = self.get_string_width(word)
-                
-                if current_width + word_width > max_width and current_line:
-                    # Print current line
-                    for seg_style, seg_text in current_line:
-                        if seg_style == 'B':
-                            self.set_font(self.font_name, "B", 12)
-                        elif seg_style == 'I':
-                            self.set_font(self.font_name, "I", 12)
-                        elif seg_style == 'code':
-                            self.set_font("Courier", "", 11)
-                        else:
-                            self.set_font(self.font_name, "", 12)
-                        self.cell(self.get_string_width(seg_text), 6, self._normalize_text(seg_text), 0, 0)
-                    
-                    # Move to next line
-                    self.ln()
-                    self.set_x(x_start)
-                    current_line = []
-                    current_width = 0
-                
-                current_line.append((style, word))
-                current_width += word_width
-        
-        # Print remaining segments
-        for seg_style, seg_text in current_line:
-            if seg_style == 'B':
-                self.set_font(self.font_name, "B", 12)
-            elif seg_style == 'I':
-                self.set_font(self.font_name, "I", 12)
-            elif seg_style == 'code':
-                self.set_font("Courier", "", 11)
-            else:
-                self.set_font(self.font_name, "", 12)
-            self.cell(self.get_string_width(seg_text), 6, self._normalize_text(seg_text), 0, 0)
-        
-        self.ln()
+            # Write text without line break
+            self.write(line_height, self._normalize_text(text))
 
     def generate_section_content(self, title, content):
         """Generate section content with markdown formatting support."""
@@ -333,7 +213,7 @@ class PdfGenerator(FPDF, HTMLMixin):
                 content = "[No content available]"
             
             self.add_page()
-            page_num = self.page_no()  # Capture page number for bookmark
+            page_num = self.page_no()
             
             # Render section title
             self.set_font(self.font_name, "B", 14)
@@ -343,33 +223,91 @@ class PdfGenerator(FPDF, HTMLMixin):
             # Process content line by line
             lines = content.split('\n')
             
-            for line in lines:
-                line = line.rstrip()
+            i = 0
+            while i < len(lines):
+                line = lines[i].rstrip()
                 
-                # Skip empty lines but add spacing
+                # Handle empty lines
                 if not line.strip():
                     self.ln(3)
+                    i += 1
                     continue
                 
                 try:
-                    # Parse and render the line
-                    parsed_line = self._parse_markdown_line(line)
-                    self._render_formatted_line(parsed_line)
+                    # Check for headers (must start with #)
+                    header_match = re.match(r'^(#{1,6})\s+(.+)$', line)
+                    if header_match:
+                        level = len(header_match.group(1))
+                        header_text = header_match.group(2)
+                        
+                        # Calculate size: # = 18pt, ## = 16pt, ### = 14pt, etc.
+                        size = max(20 - level * 2, 12)
+                        
+                        self.ln(4)
+                        self.set_font(self.font_name, 'B', size)
+                        
+                        # Strip any remaining markdown from header
+                        clean_header = self._strip_markdown(header_text)
+                        self.multi_cell(0, 8, self._normalize_text(clean_header))
+                        self.ln(2)
+                        i += 1
+                        continue
+                    
+                    # Check for bullet points
+                    bullet_match = re.match(r'^[\*\-\+]\s+(.+)$', line)
+                    if bullet_match:
+                        bullet_text = bullet_match.group(1)
+                        
+                        self.set_font(self.font_name, '', 12)
+                        self.write(6, self._normalize_text('  • '))
+                        
+                        # Parse and write inline formatting
+                        segments = self._parse_inline_formatting(bullet_text)
+                        self._write_formatted_text(segments)
+                        self.ln(7)
+                        i += 1
+                        continue
+                    
+                    # Check for numbered lists
+                    numbered_match = re.match(r'^(\d+)\.\s+(.+)$', line)
+                    if numbered_match:
+                        number = numbered_match.group(1)
+                        numbered_text = numbered_match.group(2)
+                        
+                        self.set_font(self.font_name, '', 12)
+                        self.write(6, self._normalize_text(f'  {number}. '))
+                        
+                        # Parse and write inline formatting
+                        segments = self._parse_inline_formatting(numbered_text)
+                        self._write_formatted_text(segments)
+                        self.ln(7)
+                        i += 1
+                        continue
+                    
+                    # Regular paragraph with inline formatting
+                    segments = self._parse_inline_formatting(line)
+                    
+                    self.set_font(self.font_name, '', 12)
+                    self._write_formatted_text(segments, line_height=6)
+                    self.ln(7)
+                    
                 except Exception as e:
                     logging.error(f"Error rendering line in '{title}': {e}")
                     # Fallback to plain text
                     self.set_font(self.font_name, "", 12)
-                    self.multi_cell(0, 10, self._normalize_text(line))
-                    self.ln(2)
+                    self.multi_cell(0, 6, self._normalize_text(line))
+                    self.ln(3)
+                
+                i += 1
             
-            logging.info(f"Section '{title}' rendered successfully with markdown formatting")
+            logging.info(f"Section '{title}' rendered successfully")
             
-            # Add bookmark for the section
-            self.add_bookmark(self._normalize_text(title), level=0)
-            logging.info(f"Added bookmark for '{title}' on page {page_num}")
+            # Add bookmark with clean title
+            clean_title = self._strip_markdown(title)
+            self.add_bookmark(self._normalize_text(clean_title), level=0)
+            
         except Exception as e:
             logging.error(f"Error generating section '{title}': {e}")
-            # Don't raise - continue with other sections
 
     def generate_pdf_report(self, sections_content, output_path="research_report.pdf"):
         """Generate complete PDF report with validation and error handling."""
