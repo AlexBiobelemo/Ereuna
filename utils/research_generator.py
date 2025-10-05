@@ -11,7 +11,7 @@ from openai import OpenAI
 from utils.web_scraper import WebScraper # Import the WebScraper
 
 class ResearchGenerator:
-    def __init__(self, topic, keywords, research_questions, api_keys: Dict[str, str], 
+    def __init__(self, topic, keywords, research_questions, api_keys: Dict[str, str],
                  system_prompt, model_name: str = 'gemini-1.5-flash', max_retries=3, timeout=60):
         """
         Initialize ResearchGenerator with validation and error handling.
@@ -20,7 +20,7 @@ class ResearchGenerator:
             topic: Research topic
             keywords: Keywords for research
             research_questions: Research questions
-            api_keys: Dictionary of API keys for different models (e.g., {"gemini": "YOUR_KEY", "gpt": "YOUR_KEY"})
+            api_keys: A dictionary of API keys for different models (e.g., {"gemini": "YOUR_GEMINI_KEY"}).
             system_prompt: System prompt for generation
             model_name: The name of the AI model to use (e.g., 'gemini-1.5-flash', 'gpt-4o', 'claude-3-opus-20240229')
             max_retries: Maximum number of retry attempts for API calls
@@ -30,12 +30,12 @@ class ResearchGenerator:
         if not topic or not isinstance(topic, str) or not topic.strip():
             raise ValueError("Topic must be a non-empty string")
         
-        if not api_keys or not isinstance(api_keys, dict):
-            raise ValueError("API keys must be a non-empty dictionary")
-        
         if not system_prompt or not isinstance(system_prompt, str):
             raise ValueError("System prompt must be a non-empty string")
         
+        if not isinstance(api_keys, dict):
+            raise ValueError("api_keys must be a dictionary")
+
         self.topic = topic.strip()
         self.keywords = self._validate_input(keywords, "Keywords")
         self.research_questions = self._validate_input(research_questions, "Research questions")
@@ -49,33 +49,39 @@ class ResearchGenerator:
         self.web_scraper = WebScraper(timeout=self.timeout) # Initialize WebScraper
 
     def _initialize_api_clients(self):
-        """Initialize API clients based on provided API keys."""
+        """Initialize API clients based on the selected model and provided API keys."""
         self.gemini_client = None
         self.openai_client = None
         self.anthropic_client = None
 
-        if self.api_keys.get("gemini"):
+        model_prefix = self.model_name.split('-')[0]
+        api_key = self.api_keys.get(model_prefix)
+
+        if not api_key:
+            logging.warning(f"API key not provided for model prefix: {model_prefix}. {self.model_name} will not be available.")
+            return
+
+        if model_prefix == 'gemini':
             try:
-                genai.configure(api_key=self.api_keys["gemini"])
+                genai.configure(api_key=api_key)
                 self.gemini_client = genai
                 logging.info("Successfully configured Gemini API")
             except Exception as e:
                 logging.error(f"Failed to configure Gemini API: {e}")
-                # Don't raise error, allow other models to be used
-        
-        if self.api_keys.get("gpt"):
+        elif model_prefix == 'gpt':
             try:
-                self.openai_client = OpenAI(api_key=self.api_keys["gpt"])
+                self.openai_client = OpenAI(api_key=api_key)
                 logging.info("Successfully configured OpenAI API")
             except Exception as e:
                 logging.error(f"Failed to configure OpenAI API: {e}")
-
-        if self.api_keys.get("claude"):
+        elif model_prefix == 'claude':
             try:
-                self.anthropic_client = Anthropic(api_key=self.api_keys["claude"])
+                self.anthropic_client = Anthropic(api_key=api_key)
                 logging.info("Successfully configured Anthropic API")
             except Exception as e:
                 logging.error(f"Failed to configure Anthropic API: {e}")
+        else:
+            logging.warning(f"No API client configured for model: {self.model_name}")
 
     def _validate_input(self, value, name):
         """Validate and clean input values."""
