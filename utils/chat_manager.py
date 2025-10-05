@@ -14,7 +14,11 @@ class ChatManager:
         self.api_keys = api_keys
         self.model_name = model_name
         self.research_content: str = ""
-        self.system_prompt = "You are a helpful assistant that answers questions ONLY based on the provided research content. If the answer is not in the content, state that you don't have enough information."
+        self.system_prompt = (
+            "You are a helpful research assistant. Your primary goal is to answer questions based on the provided research content. "
+            "While you should be comprehensive in your answers, ensure all information directly relates to the research provided. "
+            "If a question cannot be answered using the given content, politely state that the information is not available in the research."
+        )
         
         # Initialize API clients
         self.gemini_client = None
