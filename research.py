@@ -108,7 +108,20 @@ def app():
 
     if current_template:
         system_prompt_to_use = current_template.get("system_prompt", system_prompt_to_use)
-        sections_to_generate = current_template.get("sections", sections_to_generate)
+        template_sections = current_template.get("sections", sections_to_generate)
+        
+        # Ensure sections_to_generate is a list of strings
+        if isinstance(template_sections, list):
+            sections_to_generate = []
+            for item in template_sections:
+                if isinstance(item, dict) and "name" in item:
+                    sections_to_generate.append(item["name"])
+                elif isinstance(item, str):
+                    sections_to_generate.append(item)
+                else:
+                    logging.warning(f"Skipping invalid section item in template: {item}")
+        else:
+            sections_to_generate = template_sections # Fallback if not a list, though templates should provide a list
 
     # --- Generate Button ---
     st.divider()
@@ -151,7 +164,7 @@ def app():
                     topic=topic,
                     keywords=keywords,
                     research_questions=research_questions,
-                    api_keys=api_keys,
+                    api_key=api_keys.get(selected_model_name.split('-')[0]), # Pass specific API key
                     system_prompt=system_prompt_to_use,
                     model_name=selected_model_name
                 )
@@ -174,7 +187,7 @@ def app():
             SessionStateManager.store_research_data(sections_content, topic, keywords_input, research_questions_input, selected_model_name)
 
             # Initialize and load research content into ChatManager
-            chat_manager = ChatManager(api_keys=api_keys, model_name=selected_model_name)
+            chat_manager = ChatManager(api_key=api_keys.get(selected_model_name.split('-')[0]), model_name=selected_model_name) # Pass specific API key
             chat_manager.load_research_content(sections_content)
             SessionStateManager.set_value('chat_manager', chat_manager) # Store chat_manager in session state
 
@@ -231,7 +244,7 @@ def app():
                             topic=topic,
                             keywords=keywords,
                             research_questions=research_questions,
-                            api_keys=api_keys,
+                            api_key=api_keys.get(selected_model_name.split('-')[0]), # Pass specific API key
                             system_prompt="You are a helpful research assistant. Provide detailed and well-structured information.",
                             model_name=selected_model_name
                         )
