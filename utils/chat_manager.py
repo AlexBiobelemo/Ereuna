@@ -19,7 +19,7 @@ class ChatManager:
             topic="Chat based on research", # Dummy topic for ResearchGenerator
             keywords=[],
             research_questions=[],
-            api_keys=self.api_keys,
+            api_keys=self.api_keys, # Pass the entire api_keys dictionary
             system_prompt="You are a helpful assistant that answers questions ONLY based on the provided research content. If the answer is not in the content, state that you don't have enough information.",
             model_name=self.model_name
         )
