@@ -109,8 +109,6 @@ class ResearchGenerator:
         for attempt in range(self.max_retries):
             try:
                 logging.info(f"Attempting to generate {section_name} with {self.model_name} (attempt {attempt + 1}/{self.max_retries})")
-                logging.info(f"Prompt for {section_name}: {prompt[:500]}...") # Log first 500 chars of prompt
-                
                 response_text = ""
                 if self.model_name.startswith('gemini') and self.gemini_client:
                     model = self.gemini_client.GenerativeModel(self.model_name)
