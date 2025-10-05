@@ -49,39 +49,39 @@ class ResearchGenerator:
         self.web_scraper = WebScraper(timeout=self.timeout) # Initialize WebScraper
 
     def _initialize_api_clients(self):
-    """Initialize API clients based on the selected model and provided API keys."""
-    self.gemini_client = None
-    self.openai_client = None
-    self.anthropic_client = None
+        """Initialize API clients based on the selected model and provided API keys."""
+        self.gemini_client = None
+        self.openai_client = None
+        self.anthropic_client = None
 
-    model_prefix = self.model_name.split('-')[0]
-    api_key = self.api_keys.get(model_prefix)  # Changed variable name to api_key
+        model_prefix = self.model_name.split('-')[0]
+        api_key = self.api_keys.get(model_prefix)
 
-    if not api_key:
-        logging.warning(f"API key not provided for model prefix: {model_prefix}. {self.model_name} will not be available.")
-        return
+        if not api_key:
+            logging.warning(f"API key not provided for model prefix: {model_prefix}. {self.model_name} will not be available.")
+            return
 
-    if model_prefix == 'gemini':
-        try:
-            genai.configure(api_key=api_key)  # ✅ FIXED: Changed to api_key
-            self.gemini_client = genai
-            logging.info("Successfully configured Gemini API")
-        except Exception as e:
-            logging.error(f"Failed to configure Gemini API: {e}")
-    elif model_prefix == 'gpt':
-        try:
-            self.openai_client = OpenAI(api_key=api_key)  # ✅ FIXED: Changed to api_key
-            logging.info("Successfully configured OpenAI API")
-        except Exception as e:
-            logging.error(f"Failed to configure OpenAI API: {e}")
-    elif model_prefix == 'claude':
-        try:
-            self.anthropic_client = Anthropic(api_key=api_key)  # ✅ FIXED: Changed to api_key
-            logging.info("Successfully configured Anthropic API")
-        except Exception as e:
-            logging.error(f"Failed to configure Anthropic API: {e}")
-    else:
-        logging.warning(f"No API client configured for model: {self.model_name}")
+        if model_prefix == 'gemini':
+            try:
+                genai.configure(api_key=api_key)
+                self.gemini_client = genai
+                logging.info("Successfully configured Gemini API")
+            except Exception as e:
+                logging.error(f"Failed to configure Gemini API: {e}")
+        elif model_prefix == 'gpt':
+            try:
+                self.openai_client = OpenAI(api_key=api_key)
+                logging.info("Successfully configured OpenAI API")
+            except Exception as e:
+                logging.error(f"Failed to configure OpenAI API: {e}")
+        elif model_prefix == 'claude':
+            try:
+                self.anthropic_client = Anthropic(api_key=api_key)
+                logging.info("Successfully configured Anthropic API")
+            except Exception as e:
+                logging.error(f"Failed to configure Anthropic API: {e}")
+        else:
+            logging.warning(f"No API client configured for model: {self.model_name}")
 
     def _validate_input(self, value, name):
         """Validate and clean input values."""
@@ -374,5 +374,6 @@ class ResearchGenerator:
         except Exception as e:
             logging.error(f"Unexpected error in generate_summary: {e}")
             return f"Error generating executive summary: {str(e)}"
+
 
 
