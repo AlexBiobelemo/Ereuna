@@ -48,9 +48,10 @@ class ChatManager:
         """
         
         try:
-            response = self.research_generator.generate_section(
-                section_name="Chat Response", # Dummy section name
-                additional_prompt=prompt
+            # Use generate_custom_section instead of generate_section
+            response = self.research_generator.generate_custom_section(
+                section_name="Chat Response",
+                additional_instructions=prompt
             )
             return response
         except Exception as e:
