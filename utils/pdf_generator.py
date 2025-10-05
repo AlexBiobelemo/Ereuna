@@ -3,6 +3,7 @@ from fpdf import FPDF, HTMLMixin
 from datetime import datetime
 import unicodedata
 import logging
+import re
 
 # Configure logging for debugging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -26,6 +27,8 @@ class PdfGenerator(FPDF, HTMLMixin):
         try:
             font_path = "utils/fonts/DejaVuSans.ttf"
             font_bold_path = "utils/fonts/DejaVuSans-Bold.ttf"
+            font_italic_path = "utils/fonts/DejaVuSans-Oblique.ttf"
+            font_bold_italic_path = "utils/fonts/DejaVuSans-BoldOblique.ttf"
             
             if not os.path.exists(font_path):
                 logging.warning(f"Font file not found: {font_path}. Falling back to Arial.")
@@ -38,6 +41,16 @@ class PdfGenerator(FPDF, HTMLMixin):
                 self.add_font("DejaVuSans", "B", font_bold_path, uni=True)
             else:
                 logging.warning(f"Bold font not found: {font_bold_path}")
+            
+            if os.path.exists(font_italic_path):
+                self.add_font("DejaVuSans", "I", font_italic_path, uni=True)
+            else:
+                logging.warning(f"Italic font not found: {font_italic_path}")
+                
+            if os.path.exists(font_bold_italic_path):
+                self.add_font("DejaVuSans", "BI", font_bold_italic_path, uni=True)
+            else:
+                logging.warning(f"Bold-Italic font not found: {font_bold_italic_path}")
             
             logging.info("Successfully loaded DejaVuSans fonts.")
         except (RuntimeError, FileNotFoundError) as e:
@@ -62,7 +75,6 @@ class PdfGenerator(FPDF, HTMLMixin):
         except Exception as e:
             logging.error(f"Error generating cover page: {e}")
             raise
-
 
     def generate_table_of_contents(self, sections_with_pages, toc_page_num):
         """Generate table of contents with validation."""
@@ -98,7 +110,6 @@ class PdfGenerator(FPDF, HTMLMixin):
             logging.error(f"Error generating table of contents: {e}")
             # Don't raise - TOC is not critical
 
-
     def _normalize_text(self, text):
         """Normalize text to handle Unicode characters safely."""
         if text is None:
@@ -122,8 +133,196 @@ class PdfGenerator(FPDF, HTMLMixin):
                 logging.error(f"ASCII fallback failed: {fallback_error}")
                 return "[Text encoding error]"
 
+    def _parse_markdown_line(self, line):
+        """Parse a line for markdown formatting and return formatted segments."""
+        segments = []
+        
+        # Check for headers first (must be at start of line)
+        header_match = re.match(r'^(#{1,6})\s+(.+)$', line)
+        if header_match:
+            level = len(header_match.group(1))
+            text = header_match.group(2).strip()
+            return [{'type': 'header', 'level': level, 'text': text}]
+        
+        # Check for bullet points
+        bullet_match = re.match(r'^[\*\-\+]\s+(.+)$', line)
+        if bullet_match:
+            text = bullet_match.group(1).strip()
+            # Process inline formatting in bullet text
+            return [{'type': 'bullet', 'segments': self._parse_inline_formatting(text)}]
+        
+        # Check for numbered lists
+        numbered_match = re.match(r'^(\d+)\.\s+(.+)$', line)
+        if numbered_match:
+            number = numbered_match.group(1)
+            text = numbered_match.group(2).strip()
+            return [{'type': 'numbered', 'number': number, 'segments': self._parse_inline_formatting(text)}]
+        
+        # Regular paragraph - parse inline formatting
+        return [{'type': 'paragraph', 'segments': self._parse_inline_formatting(line)}]
+
+    def _parse_inline_formatting(self, text):
+        """Parse inline markdown formatting (bold, italic, code)."""
+        segments = []
+        pos = 0
+        
+        # Pattern to match bold, italic, or code
+        # Priority: code (`...`), bold (**...**), italic (*...*)
+        pattern = r'(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)'
+        
+        for match in re.finditer(pattern, text):
+            # Add text before the match as normal text
+            if match.start() > pos:
+                segments.append({
+                    'style': '',
+                    'text': text[pos:match.start()]
+                })
+            
+            matched_text = match.group(1)
+            
+            # Determine the style
+            if matched_text.startswith('`') and matched_text.endswith('`'):
+                # Code (inline)
+                segments.append({
+                    'style': 'code',
+                    'text': matched_text[1:-1]
+                })
+            elif matched_text.startswith('**') and matched_text.endswith('**'):
+                # Bold
+                segments.append({
+                    'style': 'B',
+                    'text': matched_text[2:-2]
+                })
+            elif matched_text.startswith('*') and matched_text.endswith('*'):
+                # Italic
+                segments.append({
+                    'style': 'I',
+                    'text': matched_text[1:-1]
+                })
+            
+            pos = match.end()
+        
+        # Add remaining text
+        if pos < len(text):
+            segments.append({
+                'style': '',
+                'text': text[pos:]
+            })
+        
+        return segments
+
+    def _render_formatted_line(self, parsed_line):
+        """Render a parsed line with proper formatting."""
+        for item in parsed_line:
+            if item['type'] == 'header':
+                # Render header
+                level = item['level']
+                size = max(18 - level * 2, 12)  # Decrease size with level
+                self.ln(3)
+                self.set_font(self.font_name, "B", size)
+                self.multi_cell(0, 8, self._normalize_text(item['text']))
+                self.ln(2)
+                self.set_font(self.font_name, "", 12)
+                
+            elif item['type'] == 'bullet':
+                # Render bullet point
+                x_start = self.get_x()
+                y_start = self.get_y()
+                
+                # Add bullet character
+                self.set_font(self.font_name, "", 12)
+                self.cell(10, 6, self._normalize_text("•"), 0, 0)
+                
+                # Render the text with inline formatting
+                self._render_inline_segments(item['segments'], indent=10)
+                self.ln(2)
+                
+            elif item['type'] == 'numbered':
+                # Render numbered list
+                self.set_font(self.font_name, "", 12)
+                self.cell(10, 6, self._normalize_text(f"{item['number']}."), 0, 0)
+                
+                # Render the text with inline formatting
+                self._render_inline_segments(item['segments'], indent=10)
+                self.ln(2)
+                
+            elif item['type'] == 'paragraph':
+                # Render paragraph with inline formatting
+                self._render_inline_segments(item['segments'])
+                self.ln(5)
+
+    def _render_inline_segments(self, segments, indent=0):
+        """Render inline formatted text segments."""
+        if not segments:
+            return
+        
+        x_start = self.get_x() + indent
+        y_start = self.get_y()
+        max_width = self.w - self.r_margin - x_start
+        
+        current_line = []
+        current_width = 0
+        
+        for segment in segments:
+            style = segment['style']
+            text = segment['text']
+            
+            # Set font style
+            if style == 'B':
+                self.set_font(self.font_name, "B", 12)
+            elif style == 'I':
+                self.set_font(self.font_name, "I", 12)
+            elif style == 'code':
+                self.set_font("Courier", "", 11)
+            else:
+                self.set_font(self.font_name, "", 12)
+            
+            # Word wrap handling
+            words = text.split(' ')
+            for i, word in enumerate(words):
+                if i > 0:
+                    word = ' ' + word
+                    
+                word_width = self.get_string_width(word)
+                
+                if current_width + word_width > max_width and current_line:
+                    # Print current line
+                    for seg_style, seg_text in current_line:
+                        if seg_style == 'B':
+                            self.set_font(self.font_name, "B", 12)
+                        elif seg_style == 'I':
+                            self.set_font(self.font_name, "I", 12)
+                        elif seg_style == 'code':
+                            self.set_font("Courier", "", 11)
+                        else:
+                            self.set_font(self.font_name, "", 12)
+                        self.cell(self.get_string_width(seg_text), 6, self._normalize_text(seg_text), 0, 0)
+                    
+                    # Move to next line
+                    self.ln()
+                    self.set_x(x_start)
+                    current_line = []
+                    current_width = 0
+                
+                current_line.append((style, word))
+                current_width += word_width
+        
+        # Print remaining segments
+        for seg_style, seg_text in current_line:
+            if seg_style == 'B':
+                self.set_font(self.font_name, "B", 12)
+            elif seg_style == 'I':
+                self.set_font(self.font_name, "I", 12)
+            elif seg_style == 'code':
+                self.set_font("Courier", "", 11)
+            else:
+                self.set_font(self.font_name, "", 12)
+            self.cell(self.get_string_width(seg_text), 6, self._normalize_text(seg_text), 0, 0)
+        
+        self.ln()
+
     def generate_section_content(self, title, content):
-        """Generate section content with comprehensive error handling."""
+        """Generate section content with markdown formatting support."""
         try:
             if not title or not isinstance(title, str):
                 logging.warning("Invalid section title provided")
@@ -136,23 +335,34 @@ class PdfGenerator(FPDF, HTMLMixin):
             self.add_page()
             page_num = self.page_no()  # Capture page number for bookmark
             
+            # Render section title
             self.set_font(self.font_name, "B", 14)
             self.cell(0, 15, self._normalize_text(title), ln=True, align="L")
             self.ln(5)
             
-            self.set_font(self.font_name, "", 12)
-            # Split content into paragraphs for better formatting
-            paragraphs = content.split('\n\n')
-            for paragraph in paragraphs:
+            # Process content line by line
+            lines = content.split('\n')
+            
+            for line in lines:
+                line = line.rstrip()
+                
+                # Skip empty lines but add spacing
+                if not line.strip():
+                    self.ln(3)
+                    continue
+                
                 try:
-                    self.multi_cell(0, 10, self._normalize_text(paragraph))
-                    self.ln(2)  # Add space between paragraphs
-                    logging.info(f"Paragraph rendered successfully in section '{title}'")
+                    # Parse and render the line
+                    parsed_line = self._parse_markdown_line(line)
+                    self._render_formatted_line(parsed_line)
                 except Exception as e:
-                    logging.error(f"Error rendering paragraph in '{title}': {e}")
-                    self.multi_cell(0, 10, "[Paragraph could not be rendered due to encoding issues]")
+                    logging.error(f"Error rendering line in '{title}': {e}")
+                    # Fallback to plain text
+                    self.set_font(self.font_name, "", 12)
+                    self.multi_cell(0, 10, self._normalize_text(line))
                     self.ln(2)
-            logging.info(f"Section '{title}' rendered successfully")
+            
+            logging.info(f"Section '{title}' rendered successfully with markdown formatting")
             
             # Add bookmark for the section
             self.add_bookmark(self._normalize_text(title), level=0)
