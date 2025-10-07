@@ -4,12 +4,12 @@ import logging
 from utils.research_generator import ResearchGenerator
 from utils.notes_manager import NotesManager
 from utils.powerpoint_generator import PowerpointGenerator
-from utils.docx_generator import DocxGenerator # Import DocxGenerator
+from utils.docx_generator import DocxGenerator
 from utils.session_state_manager import SessionStateManager
-from utils.citation_manager import CitationManager # Import CitationManager
-from utils.content_analyzer import ContentAnalyzer # Import ContentAnalyzer
-from utils.template_manager import TemplateManager # Import TemplateManager
-from utils.chat_manager import ChatManager # Import ChatManager
+from utils.citation_manager import CitationManager
+from utils.content_analyzer import ContentAnalyzer
+from utils.template_manager import TemplateManager
+from utils.chat_manager import ChatManager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -20,7 +20,6 @@ def app():
     # CRITICAL: Initialize session state first
     SessionStateManager.initialize_state()
     
-
     st.title("🔬 Automated Research Report Generator")
     st.markdown("Generate comprehensive research reports with AI-powered insights")
 
@@ -54,7 +53,7 @@ def app():
     }
     
     # Default model name
-    selected_model_name = "gemini-2.5-flash" 
+    selected_model_name = "gemini-2.5-flash"
 
     # --- User Input ---
     st.subheader("📝 Research Configuration")
@@ -122,9 +121,9 @@ def app():
         
         # Ensure sections_to_generate is a list of strings
         if isinstance(template_sections, list):
-            sections_to_generate = template_sections # Store the full list of section dictionaries
+            sections_to_generate = template_sections
         else:
-            sections_to_generate = template_sections # Fallback if not a list, though templates should provide a list
+            sections_to_generate = template_sections
 
     # --- Generate Button ---
     st.divider()
@@ -145,12 +144,6 @@ def app():
                 SessionStateManager.clear_research_data()
                 st.rerun()
     
-    # Removed Debug Info as per user request
-    # with col_btn3:
-    #     if SessionStateManager.get_value('research_generated', False):
-    #         with st.expander("📊 Debug Info"):
-    #             st.json(SessionStateManager.debug_session_state())
-
     # --- Generation Process ---
     if generate_button:
         if not topic or not keywords or not research_questions:
@@ -167,7 +160,7 @@ def app():
                     topic=topic,
                     keywords=keywords,
                     research_questions=research_questions,
-                    api_keys=api_keys, # Pass the entire api_keys dictionary
+                    api_keys=api_keys,
                     system_prompt=system_prompt_to_use,
                     model_name=selected_model_name
                 )
@@ -178,7 +171,7 @@ def app():
                     if isinstance(section_data, dict) and "title" in section_data:
                         title = section_data["title"]
                         sections_content[title] = research_gen.generate_section(section_data)
-                    elif isinstance(section_data, str): # Fallback for old string-based sections
+                    elif isinstance(section_data, str):
                         sections_content[section_data] = research_gen.generate_section(section_data)
                     else:
                         logging.warning(f"Skipping invalid section data in template: {section_data}")
@@ -196,9 +189,9 @@ def app():
             SessionStateManager.store_research_data(sections_content, topic, keywords_input, research_questions_input, selected_model_name)
 
             # Initialize and load research content into ChatManager
-            chat_manager = ChatManager(api_keys=api_keys, model_name=selected_model_name) # Pass the entire api_keys dictionary
+            chat_manager = ChatManager(api_keys=api_keys, model_name=selected_model_name)
             chat_manager.load_research_content(sections_content)
-            SessionStateManager.set_value('chat_manager', chat_manager) # Store chat_manager in session state
+            SessionStateManager.set_value('chat_manager', chat_manager)
 
             # --- Notes Management ---
             try:
@@ -253,7 +246,7 @@ def app():
                             topic=topic,
                             keywords=keywords,
                             research_questions=research_questions,
-                            api_keys=api_keys, # Pass the entire api_keys dictionary
+                            api_keys=api_keys,
                             system_prompt="You are a helpful research assistant. Provide detailed and well-structured information.",
                             model_name=selected_model_name
                         )
@@ -270,7 +263,6 @@ def app():
                 with st.expander("Executive Summary"):
                     st.markdown(SessionStateManager.get_value('executive_summary'))
             
-
             # Readability Analysis
             if st.button("Analyze Readability", key="analyze_readability_btn", use_container_width=True):
                 try:
@@ -336,13 +328,11 @@ def app():
                             st.markdown(f"- {suggestion}")
                     st.markdown("---")
 
-
-
         # --- Export Options ---
         st.divider()
         st.subheader("📥 Export Options")
         
-        col1, col2, col3 = st.columns(3) # Changed to 3 columns
+        col1, col2, col3 = st.columns(3)
         
         # --- PowerPoint Generation ---
         with col1:
@@ -403,6 +393,36 @@ def app():
                         use_container_width=True
                     )
         
+        # --- Notes/Text Export ---
+        with col2:
+            st.markdown("### 📝 Text Notes")
+            # Download Text File
+            notes_content = SessionStateManager.get_notes()
+            if notes_content:
+                topic = SessionStateManager.get_value('current_topic', 'research_notes')
+                st.download_button(
+                    label="📥 Download Text File",
+                    data=notes_content.encode('utf-8'),
+                    file_name=f"{topic.replace(' ', '_')}_research_notes.txt",
+                    mime="text/plain",
+                    key="download_txt_btn",
+                    use_container_width=True
+                )
+
+            # Live Notes Editor
+            st.markdown("### 📝 Live Notes Editor")
+            current_notes_content = SessionStateManager.get_notes()
+            edited_notes = st.text_area(
+                "Live Notes Editor",
+                value=current_notes_content,
+                height=300,
+                key="live_notes_editor",
+                on_change=lambda: SessionStateManager.store_notes(st.session_state.live_notes_editor)
+            )
+            # Ensure session state is updated if text area is edited
+            if edited_notes != current_notes_content:
+                SessionStateManager.store_notes(edited_notes)
+        
         # --- DOCX Generation ---
         with col3:
             st.markdown("### 📄 DOCX Report")
@@ -441,40 +461,10 @@ def app():
                         use_container_width=True
                     )
 
-        # --- Notes/Text Export ---
-        with col4: # Shifted to col4
-            st.markdown("### 📝 Text Notes")
-            # Download Text File
-            notes_content = SessionStateManager.get_notes()
-            if notes_content:
-                topic = SessionStateManager.get_value('current_topic', 'research_notes')
-                st.download_button(
-                    label="📥 Download Text File",
-                    data=notes_content.encode('utf-8'),
-                    file_name=f"{topic.replace(' ', '_')}_research_notes.txt",
-                    mime="text/plain",
-                    key="download_txt_btn",
-                    use_container_width=True
-                )
-
-            # Live Notes Editor
-            st.markdown("### 📝 Live Notes Editor")
-            current_notes_content = SessionStateManager.get_notes()
-            edited_notes = st.text_area(
-                "Live Notes Editor",
-                value=current_notes_content,
-                height=300,
-                key="live_notes_editor",
-                on_change=lambda: SessionStateManager.store_notes(st.session_state.live_notes_editor)
-            )
-            # Ensure session state is updated if text area is edited
-            if edited_notes != current_notes_content:
-                SessionStateManager.store_notes(edited_notes)
-        
         # Success message
         if (SessionStateManager.is_file_generated('pptx') or
-            SessionStateManager.is_file_generated('docx') or # Added DOCX check
-            SessionStateManager.is_file_generated('txt')): # Added TXT check
+            SessionStateManager.is_file_generated('docx') or
+            SessionStateManager.is_file_generated('txt')):
             st.balloons()
 
     # --- Chat Interface ---
