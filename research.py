@@ -154,10 +154,10 @@ def app():
             st.info(f"🔍 Starting research on: **{topic}** using **{selected_model_name}** with template **{selected_template_name}**...")
 
             # --- Research Generation ---
-            with st.spinner(f"🤖 Initializing research assistant..."):
+            with st.spinner(f"🚀 Starting research generation..."):
                 # Create a placeholder for the spinner message
                 spinner_message_placeholder = st.empty()
-                st.session_state.update_spinner = lambda msg: spinner_message_placeholder.text(f"🤖 {msg}")
+                st.session_state.update_spinner = lambda msg: spinner_message_placeholder.text(f"✨ {msg}")
 
                 research_gen = ResearchGenerator(
                     topic=topic,
@@ -193,7 +193,7 @@ def app():
             SessionStateManager.store_research_data(sections_content, topic, keywords_input, research_questions_input, selected_model_name)
 
             # Initialize and load research content into ChatManager
-            chat_manager = ChatManager(api_keys=api_keys, model_name=selected_model_name)
+            chat_manager = ChatManager(api_keys=api_keys, model_name=selected_model_name, research_topic=topic)
             chat_manager.load_research_content(sections_content)
             SessionStateManager.set_value('chat_manager', chat_manager)
 
@@ -243,10 +243,10 @@ def app():
             if st.button("Generate Executive Summary", key="gen_summary_btn", use_container_width=True):
                 try:
                     SessionStateManager.set_generation_in_progress(True)
-                    with st.spinner(f"🤖 Preparing to summarize..."):
+                    with st.spinner(f"📝 Preparing executive summary..."):
                         # Create a placeholder for the spinner message
                         summary_spinner_message_placeholder = st.empty()
-                        st.session_state.update_summary_spinner = lambda msg: summary_spinner_message_placeholder.text(f"🤖 {msg}")
+                        st.session_state.update_summary_spinner = lambda msg: summary_spinner_message_placeholder.text(f"📝 {msg}")
 
                         full_report_content = "\n\n".join([f"## {title}\n{content}" for title, content in sections_content.items()])
                         
@@ -276,7 +276,7 @@ def app():
             if st.button("Analyze Readability", key="analyze_readability_btn", use_container_width=True):
                 try:
                     SessionStateManager.set_generation_in_progress(True)
-                    with st.spinner("📊 Analyzing readability..."):
+                    with st.spinner("📈 Analyzing readability..."):
                         full_report_content = "\n\n".join([f"## {title}\n{content}" for title, content in sections_content.items()])
                         analyzer = ContentAnalyzer()
                         readability_scores = analyzer.analyze_readability(full_report_content)
@@ -306,7 +306,7 @@ def app():
             if st.button("Analyze Keywords", key="analyze_keywords_btn", use_container_width=True):
                 try:
                     SessionStateManager.set_generation_in_progress(True)
-                    with st.spinner("🔑 Analyzing keywords..."):
+                    with st.spinner("🔍 Optimizing keywords..."):
                         full_report_content = "\n\n".join([f"## {title}\n{content}" for title, content in sections_content.items()])
                         analyzer = ContentAnalyzer()
                         keyword_analysis = analyzer.analyze_keywords(full_report_content, keywords)
@@ -378,7 +378,7 @@ def app():
             st.markdown("### 📄 DOCX Report")
             if st.button("Generate DOCX", key="gen_docx_btn", use_container_width=True):
                 try:
-                    with st.spinner("Generating DOCX report..."):
+                    with st.spinner("📄 Finalizing DOCX report..."):
                         topic = SessionStateManager.get_value('current_topic')
                         sections_content = SessionStateManager.get_value('research_sections', {})
                         
