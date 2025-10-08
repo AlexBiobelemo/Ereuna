@@ -13,14 +13,16 @@ class ChatManager:
     Manages the chat interface, generating responses based on provided research content.
     """
 
-    def __init__(self, api_keys: Dict[str, str], model_name: str = "gemini-2.5-flash", timeout: int = 60):
+    def __init__(self, api_keys: Dict[str, str], model_name: str = "gemini-2.5-flash", timeout: int = 60, research_topic: str = ""):
         self.api_keys = api_keys
         self.model_name = model_name
         self.research_content: str = ""
         self.timeout = timeout
+        self.research_topic = research_topic
         self.system_prompt = (
-            "You are a helpful research assistant. Your primary goal is to answer questions based on the provided research content. "
-            "If a question cannot be answered using the given content, you may use your broader knowledge to answer, but always prioritize the provided research content. "
+            f"You are a helpful research assistant. Your primary goal is to answer questions ONLY based on the provided research content related to the topic: '{self.research_topic}'. "
+            "If a question cannot be answered using the given content, or if the question is not related to the research topic, you MUST state that you cannot answer questions outside the scope of the research topic. "
+            "DO NOT use your broader knowledge to answer questions that are outside the research topic. "
             "If you use external knowledge, clearly state that the information is not from the provided research."
         )
         
@@ -75,21 +77,32 @@ class ChatManager:
             return "Please ask a question."
             
         # Initial prompt to prioritize research content
-        initial_prompt = f"""Based on the following research content, answer the user's question.
+        # First, check if the user's query is relevant to the research topic
+        relevance_check_prompt = (
+            f"Given the research topic: '{self.research_topic}', determine if the following user query is relevant. "
+            "Respond with 'YES' if relevant, and 'NO' if not relevant. Do not provide any other text.\n\n"
+            f"User Query: {user_query}"
+        )
+        
+        try:
+            relevance_response = self._get_llm_response(relevance_check_prompt)
+            if "no" in relevance_response.lower():
+                return f"I can only answer questions related to the research topic: '{self.research_topic}'. Your question seems to be outside this scope."
+
+            initial_prompt = f"""Based on the following research content, answer the user's question.
 If the answer is not directly available in the provided content, state that you don't have enough information in the research to answer, but then attempt to answer using your broader knowledge.
 If you use external knowledge, clearly state that the information is not from the provided research.
-
+ 
 --- Research Content ---
 {self.research_content if self.research_content else "No specific research content loaded."}
 --- End Research Content ---
-
+ 
 User's Question: {user_query}
-
+ 
 Please provide a clear, concise answer. Prioritize information from the research content. If you use external knowledge, clearly state that it is not from the provided research."""
-
-        try:
+ 
             response_text = self._get_llm_response(initial_prompt)
-
+ 
             # Check if the response indicates lack of information from the report
             # and if a web search might be beneficial.
             # This is a simplified check; more sophisticated NLP could be used.
@@ -108,13 +121,13 @@ Please provide a clear, concise answer. Prioritize information from the research
                     if scraped_content:
                         web_search_prompt = f"""Based on the following web search results and your broader knowledge, answer the user's question.
 Clearly state that this information is from external sources and not the original research report.
-
+ 
 --- Web Search Results ---
 {"\n\n".join(scraped_content)}
 --- End Web Search Results ---
-
+ 
 User's Question: {user_query}
-
+ 
 Please provide a clear, concise answer, explicitly mentioning that this information is from external sources."""
                         response_text = self._get_llm_response(web_search_prompt)
                         if "not from the provided research" not in response_text.lower():
