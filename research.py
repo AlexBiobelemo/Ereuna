@@ -165,8 +165,7 @@ def app():
                     research_questions=research_questions,
                     api_keys=api_keys,
                     system_prompt=system_prompt_to_use,
-                    model_name=selected_model_name,
-                    spinner_update_callback=st.session_state.update_spinner
+                    model_name=selected_model_name
                 )
                 
                 # Generate sections based on the template
@@ -256,8 +255,7 @@ def app():
                             research_questions=research_questions,
                             api_keys=api_keys,
                             system_prompt="You are a helpful research assistant. Provide detailed and well-structured information.",
-                            model_name=selected_model_name,
-                            spinner_update_callback=st.session_state.update_summary_spinner
+                            model_name=selected_model_name
                         )
                         executive_summary = research_gen.generate_summary(full_report_content)
                         SessionStateManager.set_value('executive_summary', executive_summary)
