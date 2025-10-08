@@ -1,0 +1,32 @@
+{
+    "name": "Learning Approach",
+    "description": "A template focused on structured learning, breaking down topics into key concepts, examples, and further reading.",
+    "sections": [
+        {
+            "title": "Introduction to {topic}",
+            "prompt": "Provide a clear and engaging introductory overview of '{topic}', highlighting its significance, core principles, and relevance to learners in practical or academic contexts.",
+            "word_count": 200
+        },
+        {
+            "title": "Key Concepts and Definitions",
+            "prompt": "Explain the fundamental concepts and definitions of '{topic}' with precision and clarity, ensuring each term is contextualized and accessible to learners at various levels.",
+            "word_count": 400
+        },
+        {
+            "title": "Examples and Case Studies",
+            "prompt": "Demonstrate the practical application of '{topic}' through vivid, well-chosen examples or case studies, clearly showing how theoretical concepts translate to real-world scenarios.",
+            "word_count": 300
+        },
+        {
+            "title": "Summary and Key Takeaways",
+            "prompt": "Synthesize the essential points of '{topic}', providing concise and memorable key takeaways to reinforce learning and facilitate retention.",
+            "word_count": 150
+        },
+        {
+            "title": "Further Reading and Resources",
+            "prompt": "Recommend high-quality, accessible resources (books, articles, websites, or videos) for deeper exploration of '{topic}', ensuring relevance and credibility for continued learning.",
+            "word_count": 100
+        }
+    ],
+    "deep_research_enabled": false
+}
