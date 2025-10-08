@@ -3,7 +3,6 @@ import os
 import logging
 from utils.research_generator import ResearchGenerator
 from utils.notes_manager import NotesManager
-from utils.powerpoint_generator import PowerpointGenerator
 from utils.docx_generator import DocxGenerator
 from utils.session_state_manager import SessionStateManager
 from utils.citation_manager import CitationManager
@@ -332,69 +331,10 @@ def app():
         st.divider()
         st.subheader("📥 Export Options")
         
-        col1, col2, col3 = st.columns(3)
-        
-        # --- PowerPoint Generation ---
-        with col1:
-            st.markdown("### 📊 PowerPoint")
-            if st.button("Generate PowerPoint", key="gen_pptx_btn", use_container_width=True):
-                try:
-                    with st.spinner("Generating PowerPoint presentation..."):
-                        topic = SessionStateManager.get_value('current_topic')
-                        
-                        # Prepare slides data
-                        slides_data = []
-                        # Add title slide
-                        slides_data.append({
-                            "title": topic,
-                            "bullets": ["Comprehensive Research Report", f"Generated on {st.session_state.get('generation_date', 'today')}"]
-                        })
-                        
-                        # Add executive summary slide if available
-                        executive_summary = SessionStateManager.get_value('executive_summary')
-                        if executive_summary:
-                            summary_bullets = [line.strip() for line in executive_summary.split('\n')
-                                               if line.strip() and len(line.strip()) > 10][:8]
-                            if summary_bullets:
-                                slides_data.append({"title": "Executive Summary", "bullets": summary_bullets})
-
-                        # Add content slides
-                        for title, content in sections_content.items():
-                            bullets = [line.strip() for line in content.split('\n')
-                                     if line.strip() and len(line.strip()) > 10][:8]
-                            if bullets:
-                                slides_data.append({"title": title, "bullets": bullets})
-                        
-                        pptx_output_path = f"{topic.replace(' ', '_')}_research_presentation.pptx"
-                        powerpoint_gen = PowerpointGenerator(topic=topic)
-                        powerpoint_gen.generate_powerpoint(slides_data, output_path=pptx_output_path)
-                        
-                        # CRITICAL: Read file and store in session state
-                        with open(pptx_output_path, "rb") as f:
-                            pptx_bytes = f.read()
-                        
-                        SessionStateManager.store_file_data('pptx', pptx_output_path, pptx_bytes)
-                        st.success("✅ PowerPoint presentation generated!")
-                except Exception as e:
-                    st.error(f"❌ PowerPoint generation failed: {str(e)}")
-                    logging.error(f"PowerPoint generation error: {e}")
-            
-            # Show download button if PPTX exists in session state
-            if SessionStateManager.is_file_generated('pptx'):
-                pptx_bytes = SessionStateManager.get_file_bytes('pptx')
-                if pptx_bytes:
-                    topic = SessionStateManager.get_value('current_topic')
-                    st.download_button(
-                        label="📥 Download PowerPoint",
-                        data=pptx_bytes,
-                        file_name=f"{topic.replace(' ', '_')}_research_presentation.pptx",
-                        mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                        key="download_pptx_btn",
-                        use_container_width=True
-                    )
+        col1, col2 = st.columns(2)
         
         # --- Notes/Text Export ---
-        with col2:
+        with col1:
             st.markdown("### 📝 Text Notes")
             # Download Text File
             notes_content = SessionStateManager.get_notes()
@@ -424,7 +364,7 @@ def app():
                 SessionStateManager.store_notes(edited_notes)
         
         # --- DOCX Generation ---
-        with col3:
+        with col2:
             st.markdown("### 📄 DOCX Report")
             if st.button("Generate DOCX", key="gen_docx_btn", use_container_width=True):
                 try:
@@ -462,8 +402,7 @@ def app():
                     )
 
         # Success message
-        if (SessionStateManager.is_file_generated('pptx') or
-            SessionStateManager.is_file_generated('docx') or
+        if (SessionStateManager.is_file_generated('docx') or
             SessionStateManager.is_file_generated('txt')):
             st.balloons()
 
@@ -510,7 +449,7 @@ def app():
     st.divider()
     st.markdown("""
     <div style='text-align: center; color: #666; padding: 20px;'>
-        <p>🤖 Powered by Google Gemini AI | Built with Streamlit</p>
+        <p>AlexAlagoaBiobelemo</p>
         <p style='font-size: 0.8em;'>Generate professional research reports with AI assistance</p>
     </div>
     """, unsafe_allow_html=True)
