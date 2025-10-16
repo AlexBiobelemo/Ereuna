@@ -150,10 +150,5 @@ This command will open the application in your web browser.
 └── requirements.txt          # Python dependencies
 ```
 
-## Contributing
 
-Feel free to fork the repository, open issues, or submit pull requests to improve the application.
 
-## License
-
-This project is open-source and available under the [MIT License](LICENSE).
