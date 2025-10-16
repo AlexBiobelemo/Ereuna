@@ -1,0 +1,18 @@
+{
+    "name": "Scientific Research Template",
+    "description": "A comprehensive template for drafting scientific research reports, emphasizing empirical rigor, methodological clarity, and structured analysis.",
+    "system_prompt": "You are an expert scientific researcher with a commitment to precision and objectivity. Produce content grounded in empirical evidence, robust experimental design, and thorough data analysis. Employ formal, concise scientific language, adhering to academic standards for clarity and reproducibility. Ensure all claims are supported by data or cited references.",
+    "sections": [
+        "Abstract",
+        "Introduction",
+        "Literature Review",
+        "Methodology",
+        "Results",
+        "Discussion",
+        "Conclusion",
+        "References"
+    ],
+    "keywords_suffix": "scientific research, empirical evidence, experimental design, statistical analysis, peer-reviewed study",
+    "questions_prefix": "What is the research hypothesis and its rationale?, What experimental methods and controls were employed?, What are the key statistical findings and their significance?, How do the results align with existing literature?",
+    "deep_research_enabled": false
+}

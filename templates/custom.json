@@ -1,0 +1,13 @@
+{
+    "name": "Custom Template",
+    "description": "A customizable template where users can define their own sections and structure.",
+    "system_prompt": "You are a versatile research assistant. Generate content based on the user's specified sections and requirements. Focus on providing comprehensive and well-structured information for each section.",
+    "sections": [
+        "Introduction",
+        "Main Body",
+        "Conclusion"
+    ],
+    "keywords_suffix": "custom research, user-defined sections, flexible content",
+    "questions_prefix": "What specific topics should be covered in each section?, Are there any particular styles or tones to adopt?, What is the desired length for each section?",
+    "deep_research_enabled": true
+}

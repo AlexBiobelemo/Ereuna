@@ -1,0 +1,4 @@
+{
+    "prompt": "Provide a {summary_detail_instruction} executive summary (around {summary_word_count} words) of the following research report. Focus on the main findings, key arguments, and conclusions. Ensure the summary is clear, objective, and highlights the most important aspects. {deep_research_instruction}\n\nResearch Report:\n{full_report_content}",
+    "description": "Template for generating an executive summary."
+}

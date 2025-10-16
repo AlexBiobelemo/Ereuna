@@ -1,0 +1,4 @@
+{
+    "prompt": "Create a {section_name} for a research report on the topic: {topic}. Keywords: {keywords}. Research questions: {research_questions}. Ensure the content is approximately {word_count} words. {deep_research_instruction}",
+    "description": "Template for generating a standard research report section."
+}

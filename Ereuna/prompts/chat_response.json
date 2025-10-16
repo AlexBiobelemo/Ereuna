@@ -1,0 +1,4 @@
+{
+    "prompt": "Based on the following research content, answer the user's question.\nIf the answer is not directly available in the provided content, state that you don't have enough information in the research to answer, but then attempt to answer using your broader knowledge.\nIf you use external knowledge, clearly state that the information is not from the provided research.\n \n--- Research Content ---\n{research_content}\n--- End Research Content ---\n \nUser's Question: {user_query}\n \nPlease provide a clear, concise answer. Prioritize information from the research content. If you use external knowledge, clearly state that it is not from the provided research.",
+    "description": "Template for generating chat responses based on research content."
+}

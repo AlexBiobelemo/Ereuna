@@ -1,0 +1,4 @@
+{
+    "prompt": "Given the research topic: '{research_topic}', determine if the following user query is relevant. Respond with 'YES' if relevant, and 'NO' if not relevant. Do not provide any other text.\n\nUser Query: {user_query}",
+    "description": "Template for checking query relevance to the research topic."
+}

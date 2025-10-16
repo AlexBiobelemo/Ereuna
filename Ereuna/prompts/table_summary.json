@@ -1,0 +1,4 @@
+{
+    "prompt": "Please summarize the following table data concisely.\n            Table Content:\n            {table_content}\n\n            Provide a summary that highlights the key information and trends in the table.",
+    "description": "Template for summarizing table content."
+}

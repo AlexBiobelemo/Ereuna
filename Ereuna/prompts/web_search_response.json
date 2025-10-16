@@ -1,0 +1,4 @@
+{
+    "prompt": "Based on the following web search results and your broader knowledge, answer the user's question.\nClearly state that this information is from external sources and not the original research report.\n \n--- Web Search Results ---\n{scraped_content}\n--- End Web Search Results ---\n \nUser's Question: {user_query}\n \nPlease provide a clear, concise answer, explicitly mentioning that this information is from external sources.",
+    "description": "Template for generating chat responses using web search results."
+}
