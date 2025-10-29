@@ -16,7 +16,7 @@ from utils.prompt_manager import PromptManager # Import PromptManager
 
 class ResearchGenerator:
     def __init__(self, topic, keywords, research_questions, config_manager: ConfigManager,
-                 prompt_manager: PromptManager, deep_research_enabled: bool = False, model_name: str = 'gemini-1.5-flash', max_retries=3, timeout=60, spinner_update_callback=None):
+                 prompt_manager: PromptManager, deep_research_enabled: bool = False, model_name: str = 'gemini-2.5-flash', max_retries=7, timeout=60, spinner_update_callback=None):
         """
         Initialize ResearchGenerator with validation and error handling.
         
@@ -501,3 +501,4 @@ class ResearchGenerator:
                 self.spinner_update_callback(f"Unexpected error in generate_summary: {e}")
             logging.error(f"Unexpected error in generate_summary: {e}")
             return f"Error generating executive summary: {str(e)}"
+
