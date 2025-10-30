@@ -61,11 +61,7 @@ class DocxGenerator:
                 elif element.name == 'pre': # For code blocks
                     code_text = element.get_text()
                     p = document.add_paragraph(code_text)
-                    try:
-                       p.style = 'Code'
-                       except KeyError:
-                           # Style does not exist; fall back to Normal
-                           p.style = 'Normal'
+                    p.style = 'Code' # Apply a 'Code' style if available in the document template
                     # Apply monospace font directly for better code block representation
                     for run in p.runs:
                         run.font.name = 'Courier New'
