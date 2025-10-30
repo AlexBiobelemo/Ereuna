@@ -1,7 +1,6 @@
 from docx import Document
 from docx.shared import Inches, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.style import WD_STYLE_TYPE
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from typing import Dict, Any
@@ -13,21 +12,6 @@ from docx.text.paragraph import Paragraph
 class DocxGenerator:
     def __init__(self, topic: str):
         self.topic = topic
-
-    def _ensure_code_style(self, document):
-        """Creates a 'Code' style if it doesn't exist."""
-        try:
-            # Try to access the style - if it exists, this won't raise an error
-            document.styles['Code']
-        except KeyError:
-            # Style doesn't exist, so create it
-            styles = document.styles
-            code_style = styles.add_style('Code', WD_STYLE_TYPE.PARAGRAPH)
-            code_font = code_style.font
-            code_font.name = 'Courier New'
-            code_font.size = Pt(10)
-            # Optional: set background color for code blocks
-            # code_style.paragraph_format.left_indent = Inches(0.5)
 
     def _add_markdown_content(self, document, markdown_text):
         """
@@ -73,7 +57,10 @@ class DocxGenerator:
                 elif element.name == 'pre': # For code blocks
                     code_text = element.get_text()
                     p = document.add_paragraph(code_text)
-                    p.style = 'Code' # Apply the Code style (ensured to exist)
+                    # Apply monospace font directly without using a style
+                    for run in p.runs:
+                        run.font.name = 'Courier New'
+                        run.font.size = Pt(10)
                 elif element.name == 'hr': # Horizontal Rule
                     # Represent horizontal rule with a simple text line
                     document.add_paragraph("---", style='Normal')
@@ -214,9 +201,6 @@ class DocxGenerator:
         Generates a DOCX report from a dictionary of section titles and their markdown content.
         """
         document = Document()
-
-        # Ensure Code style exists before processing any content
-        self._ensure_code_style(document)
 
         # Add the main topic as a level 1 heading
         document.add_heading(self.topic, level=1)
