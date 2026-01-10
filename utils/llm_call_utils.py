@@ -25,8 +25,17 @@ logger = logging.getLogger(__name__)
 # Backwards-compatible exception references for google.genai
 # Some releases expose different exception class names; fall back to generic Exception when not present.
 _genai_types = getattr(genai, 'types', genai)
-GENAI_BLOCKED_PROMPT_EXCEPTION = getattr(_genai_types, 'BlockedPromptException', Exception)
-GENAI_API_ERROR = getattr(genai, 'APIError', getattr(genai, 'Error', Exception))
+
+# Create narrow fallback exception classes so we don't accidentally
+# catch unrelated exceptions (which would hide real errors).
+class _NoGenaiBlockedPrompt(Exception):
+    pass
+
+class _NoGenaiAPIError(Exception):
+    pass
+
+GENAI_BLOCKED_PROMPT_EXCEPTION = getattr(_genai_types, 'BlockedPromptException', _NoGenaiBlockedPrompt)
+GENAI_API_ERROR = getattr(genai, 'APIError', getattr(genai, 'Error', _NoGenaiAPIError))
 
 
 def make_llm_call_with_retry(
