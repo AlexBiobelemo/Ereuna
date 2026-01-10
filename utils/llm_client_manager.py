@@ -69,7 +69,59 @@ class _GenaiModelWrapper:
                     resp = gen(model=self._model_name, input=prompt_text)
                 return _wrap_response(resp)
 
-        raise RuntimeError('No compatible google.genai generate API found')
+        # As a last-resort fallback, try the Google Generative Language REST API
+        try:
+            import requests
+
+            if not self._api_key:
+                raise RuntimeError('No API key available for REST fallback')
+
+            model_id = self._model_name
+            # Use the Google Generative Language REST endpoint
+            endpoint = f"https://generativelanguage.googleapis.com/v1beta2/models/{model_id}:generate"
+
+            headers = {"Content-Type": "application/json"}
+            params = {}
+            # If API key looks like an API key (starts with AIza), pass as ?key=, otherwise use Bearer
+            if isinstance(self._api_key, str) and self._api_key.startswith("AIza"):
+                params['key'] = self._api_key
+            else:
+                headers['Authorization'] = f"Bearer {self._api_key}"
+
+            payload = {"prompt": {"text": prompt_text}}
+
+            resp = requests.post(endpoint, json=payload, headers=headers, params=params, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+
+            # Try common response structures
+            text = ""
+            if isinstance(data, dict):
+                if 'candidates' in data and isinstance(data['candidates'], list) and data['candidates']:
+                    cand = data['candidates'][0]
+                    text = cand.get('content') or cand.get('text') or ''
+
+                if not text:
+                    for key in ('output', 'outputs', 'content', 'text', 'result'):
+                        v = data.get(key)
+                        if isinstance(v, str) and v:
+                            text = v
+                            break
+                        if isinstance(v, list) and v:
+                            text = ' '.join(str(x) for x in v)
+                            break
+                        if isinstance(v, dict):
+                            if 'content' in v:
+                                text = v.get('content')
+                                break
+
+            if not text:
+                # Fallback to stringifying the whole response
+                text = str(data)
+
+            return _wrap_response({'text': text})
+        except Exception as e:
+            raise RuntimeError(f"No compatible google.genai generate API found and REST fallback failed: {e}")
 
 
 def _wrap_response(resp):
