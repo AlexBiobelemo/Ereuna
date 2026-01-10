@@ -13,6 +13,18 @@ from utils.web_scraper import WebScraper # Import the WebScraper
 from utils.llm_client_manager import LLMClientManager # Import the new LLMClientManager
 from utils.config_manager import ConfigManager # Import ConfigManager
 from utils.prompt_manager import PromptManager # Import PromptManager
+from utils.llm_call_utils import make_llm_call_with_retry # Import shared LLM call utilities
+from utils.exceptions import (
+    EreunaError,
+    APITimeoutError,
+    APIRateLimitError,
+    APIAuthenticationError,
+    APIPermissionError,
+    LLMGenerationError,
+    ValidationError
+)
+
+logger = logging.getLogger(__name__)
 
 class ResearchGenerator:
     def __init__(self, topic, keywords, research_questions, config_manager: ConfigManager,
@@ -33,13 +45,13 @@ class ResearchGenerator:
         """
         # Validate inputs
         if not topic or not isinstance(topic, str) or not topic.strip():
-            raise ValueError("Topic must be a non-empty string")
+            raise ValidationError("Topic must be a non-empty string", field="topic", value=topic)
         
         if not isinstance(config_manager, ConfigManager):
-            raise ValueError("config_manager must be an instance of ConfigManager")
+            raise ValidationError("config_manager must be an instance of ConfigManager", field="config_manager", value=config_manager)
         
         if not isinstance(prompt_manager, PromptManager):
-            raise ValueError("prompt_manager must be an instance of PromptManager")
+            raise ValidationError("prompt_manager must be an instance of PromptManager", field="prompt_manager", value=prompt_manager)
 
         self.topic = topic.strip()
         self.keywords = self._validate_input(keywords, "Keywords")
@@ -63,7 +75,7 @@ class ResearchGenerator:
         if value is None:
             if self.spinner_update_callback:
                 self.spinner_update_callback(f"Warning: {name} is None, using empty string")
-            logging.warning(f"{name} is None, using empty string")
+            logger.warning(f"{name} is None, using empty string")
             return ""
         
         if isinstance(value, (list, tuple)):
@@ -75,6 +87,7 @@ class ResearchGenerator:
     def _make_api_call_with_retry(self, prompt, section_name):
         """
         Make API call with retry logic and exponential backoff, supporting multiple models.
+        Uses shared utility while preserving spinner callback functionality.
         
         Args:
             prompt: The prompt to send to the API
@@ -83,123 +96,58 @@ class ResearchGenerator:
         Returns:
             Generated text or error message
         """
-        for attempt in range(self.max_retries):
-            try:
-                if self.spinner_update_callback:
-                    # Clean model name for display: remove version numbers and "flash"
-                    display_model_name = self.model_name.replace('gemini-1.5-flash', 'Gemini Flash').replace('gemini-2.5-flash', 'Gemini Flash').replace('gemini-pro', 'Gemini Pro')
-                    # Remove "(attempt X/Y)" from the spinner message as requested
-                    spinner_message = f"Crafting the {section_name} with {display_model_name}"
-                    self.spinner_update_callback(spinner_message)
-                logging.info(f"Attempting to generate {section_name} with {self.model_name} (attempt {attempt + 1}/{self.max_retries})")
-                response_text = ""
-                model_prefix = self.model_name.split('-')[0]
-                client = self.llm_client_manager.get_client(self.model_name)
-
-                if model_prefix == 'gemini' and client:
-                    model = client.GenerativeModel(self.model_name)
-                    response = model.generate_content(prompt)
-                    response_text = response.text
-                elif model_prefix == 'gpt' and client:
-                    chat_completion = client.chat.completions.create(
-                        messages=[
-                            {"role": "system", "content": self.system_prompt}, # Use the system prompt defined in __init__
-                            {"role": "user", "content": prompt}
-                        ],
-                        model=self.model_name,
-                        timeout=self.timeout
-                    )
-                    response_text = chat_completion.choices.message.content
-                elif model_prefix == 'claude' and client:
-                    message = client.messages.create(
-                        model=self.model_name,
-                        max_tokens=4000, # Increased max_tokens for potentially longer responses
-                        system=self.system_prompt, # Use the system prompt defined in __init__
-                        messages=[
-                            {"role": "user", "content": prompt}
-                        ],
-                        timeout=self.timeout
-                    )
-                    response_text = message.content.text
-                else:
-                    return f"Error: Unsupported model '{self.model_name}' or API client not initialized."
-
-                # Validate response
-                if not response_text or not response_text.strip():
-                    raise ValueError(f"Empty response received for {section_name}")
-                
-                if self.spinner_update_callback:
-                    self.spinner_update_callback(f"The {section_name} is taking shape!")
-                logging.info(f"Successfully generated {section_name} with {self.model_name}")
-                return response_text
-                
-            except (genai.types.BlockedPromptException, openai.APITimeoutError, anthropic.APITimeoutError) as e:
-                if self.spinner_update_callback:
-                    self.spinner_update_callback(f"Error: Timeout error for {section_name} with {self.model_name}: {e}")
-                logging.error(f"Timeout error for {section_name} with {self.model_name}: {e}")
-                if attempt < self.max_retries - 1:
-                    wait_time = (2 ** attempt)
-                    if self.spinner_update_callback:
-                        self.spinner_update_callback(f"Timeout occurred. Waiting {wait_time} seconds before retry...")
-                    logging.info(f"Timeout occurred. Waiting {wait_time} seconds before retry...")
-                    time.sleep(wait_time)
-                else:
-                    return f"Error: Request timeout for {section_name} with {self.model_name}. Please check your connection and try again."
-            except (genai.APIError, openai.APIError, anthropic.APIError) as e: # Revert to genai.APIError
-                error_msg = str(e).lower()
-                if "quota" in error_msg or "rate" in error_msg:
-                    if self.spinner_update_callback:
-                        self.spinner_update_callback(f"Error: API rate limit/quota error for {section_name} with {self.model_name}: {e}")
-                    logging.error(f"API rate limit/quota error for {section_name} with {self.model_name}: {e}")
-                    if attempt < self.max_retries - 1:
-                        wait_time = (2 ** attempt) * 2  # Exponential backoff: 2, 4, 8 seconds
-                        if self.spinner_update_callback:
-                            self.spinner_update_callback(f"Rate limit hit. Waiting {wait_time} seconds before retry...")
-                        logging.info(f"Rate limit hit. Waiting {wait_time} seconds before retry...")
-                        time.sleep(wait_time)
-                    else:
-                        return f"Error: API rate limit exceeded for {section_name} with {self.model_name}. Please try again later."
-                elif "api key" in error_msg or "authentication" in error_msg:
-                    if self.spinner_update_callback:
-                        self.spinner_update_callback(f"Error: API key error for {section_name} with {self.model_name}: {e}")
-                    logging.error(f"API key error for {section_name} with {self.model_name}: {e}")
-                    return f"Error: Invalid API key for {self.model_name}. Please check your configuration."
-                elif "permission" in error_msg or "forbidden" in error_msg:
-                    if self.spinner_update_callback:
-                        self.spinner_update_callback(f"Error: Permission error for {section_name} with {self.model_name}: {e}")
-                    logging.error(f"Permission error for {section_name} with {self.model_name}: {e}")
-                    return f"Error: Permission denied for {self.model_name}. Please check your API key permissions."
-                else:
-                    if self.spinner_update_callback:
-                        self.spinner_update_callback(f"Error: Unexpected API error generating {section_name} with {self.model_name} (attempt {attempt + 1}): {e}")
-                    logging.error(f"Unexpected API error generating {section_name} with {self.model_name} (attempt {attempt + 1}): {e}")
-                    if attempt < self.max_retries - 1:
-                        wait_time = 2 ** attempt
-                        if self.spinner_update_callback:
-                            self.spinner_update_callback(f"Retrying in {wait_time} seconds...")
-                        logging.info(f"Retrying in {wait_time} seconds...")
-                        time.sleep(wait_time)
-                    else:
-                        return f"Error generating {section_name} with {self.model_name}: {e}"
-            except Exception as e:
-                error_type = type(e).__name__
-                error_msg = str(e)
-                if self.spinner_update_callback:
-                    self.spinner_update_callback(f"Error: Unexpected error generating {section_name} with {self.model_name} (attempt {attempt + 1}): {error_type} - {error_msg}")
-                logging.error(f"Unexpected error generating {section_name} with {self.model_name} (attempt {attempt + 1}): {error_type} - {error_msg}")
-                if attempt < self.max_retries - 1:
-                    wait_time = 2 ** attempt
-                    if self.spinner_update_callback:
-                        self.spinner_update_callback(f"Retrying in {wait_time} seconds...")
-                    logging.info(f"Retrying in {wait_time} seconds...")
-                    time.sleep(wait_time)
-                else:
-                    return f"Error generating {section_name} with {self.model_name}: {error_type} - {error_msg}"
-        
-        # If all retries failed
+        # Update spinner before making the call
         if self.spinner_update_callback:
-            self.spinner_update_callback(f"Oops! The {section_name} couldn't be generated after {self.max_retries} attempts. Let's try again later.")
-        return f"Error: Failed to generate {section_name} with {self.model_name} after {self.max_retries} attempts. Please try again later."
+            display_model_name = self.model_name.replace('gemini-1.5-flash', 'Gemini Flash').replace('gemini-2.5-flash', 'Gemini Flash').replace('gemini-pro', 'Gemini Pro')
+            spinner_message = f"Crafting the {section_name} with {display_model_name}"
+            self.spinner_update_callback(spinner_message)
+        
+        try:
+            # Use shared utility for the actual API call
+            response_text = make_llm_call_with_retry(
+                llm_client_manager=self.llm_client_manager,
+                model_name=self.model_name,
+                prompt=prompt,
+                system_prompt=self.system_prompt,
+                max_retries=self.max_retries,
+                timeout=self.timeout,
+                call_type=section_name
+            )
+            
+            # Update spinner on success
+            if self.spinner_update_callback:
+                self.spinner_update_callback(f"The {section_name} is taking shape!")
+            
+            return response_text
+            
+        except APITimeoutError as e:
+            if self.spinner_update_callback:
+                self.spinner_update_callback(f"Error: Timeout error for {section_name} with {self.model_name}: {e.message}")
+            return f"Error: Request timeout for {section_name} with {self.model_name}. Please check your connection and try again."
+        except APIRateLimitError as e:
+            if self.spinner_update_callback:
+                self.spinner_update_callback(f"Error: API rate limit/quota error for {section_name} with {self.model_name}")
+            return f"Error: API rate limit exceeded for {section_name} with {self.model_name}. Please try again later."
+        except APIAuthenticationError as e:
+            if self.spinner_update_callback:
+                self.spinner_update_callback(f"Error: API key error for {section_name} with {self.model_name}")
+            return f"Error: Invalid API key for {self.model_name}. Please check your configuration."
+        except APIPermissionError as e:
+            if self.spinner_update_callback:
+                self.spinner_update_callback(f"Error: Permission error for {section_name} with {self.model_name}")
+            return f"Error: Permission denied for {self.model_name}. Please check your API key permissions."
+        except LLMGenerationError as e:
+            if self.spinner_update_callback:
+                self.spinner_update_callback(f"Error: {e.message}")
+            return f"Error: {e.message}"
+        except EreunaError as e:
+            if self.spinner_update_callback:
+                self.spinner_update_callback(f"Error: {e.message}")
+            return f"Error: {e.message}"
+        except Exception as e:
+            if self.spinner_update_callback:
+                self.spinner_update_callback(f"Error: Unexpected error generating {section_name} with {self.model_name}: {e}")
+            return f"Error generating {section_name} with {self.model_name}: {str(e)}"
 
     def perform_web_research(self, query: str, num_sources: int = 3) -> List[Dict[str, str]]:
         """
@@ -214,18 +162,18 @@ class ResearchGenerator:
         """
         if self.spinner_update_callback:
             self.spinner_update_callback(f"Performing web research for query: {query}")
-        logging.info(f"Performing web research for query: {query}")
+        logger.info(f"Performing web research for query: {query}")
         search_results = self.web_scraper.search_academic_sources(query, num_results=num_sources)
         
         if not search_results:
             if self.spinner_update_callback:
                 self.spinner_update_callback(f"Warning: No academic sources found for query: {query}")
-            logging.warning(f"No academic sources found for query: {query}")
+            logger.warning(f"No academic sources found for query: {query}")
             return []
         
         if self.spinner_update_callback:
             self.spinner_update_callback(f"Found {len(search_results)} academic sources for query: {query}")
-        logging.info(f"Found {len(search_results)} academic sources for query: {query}")
+        logger.info(f"Found {len(search_results)} academic sources for query: {query}")
         return search_results
 
     def scrape_source_content(self, url: str) -> Optional[str]:
@@ -240,12 +188,12 @@ class ResearchGenerator:
         """
         if self.spinner_update_callback:
             self.spinner_update_callback(f"Scraping content from URL: {url}")
-        logging.info(f"Scraping content from URL: {url}")
+        logger.info(f"Scraping content from URL: {url}")
         content = self.web_scraper.scrape_text_from_url(url)
         if not content:
             if self.spinner_update_callback:
                 self.spinner_update_callback(f"Error: Failed to scrape content from {url}")
-            logging.error(f"Failed to scrape content from {url}")
+            logger.error(f"Failed to scrape content from {url}")
         return content
 
     def generate_section(self, section_data: Any, previous_sections_content: Optional[str] = None, spinner_update_callback=None):
@@ -287,21 +235,21 @@ class ResearchGenerator:
                 word_count = section_data.get("word_count")
 
                 if not section_prompt:
-                    raise ValueError(f"Section '{section_name}' is missing a 'prompt' field in the template.")
+                    raise ValidationError(f"Section '{section_name}' is missing a 'prompt' field in the template.", field="prompt", value=section_data)
             elif isinstance(section_data, str):
                 section_name = section_data
                 # Use prompt manager for default section prompt
                 section_prompt = self.prompt_manager.get_template("research_section")
                 if not section_prompt:
-                    raise ValueError(f"Default 'research_section' prompt template not found.")
+                    raise ValidationError("Default 'research_section' prompt template not found.", field="prompt_template")
             else:
-                raise ValueError("Invalid section_data type. Must be string or dictionary.")
+                raise ValidationError("Invalid section_data type. Must be string or dictionary.", field="section_data", value=section_data)
 
             # Ensure section_prompt is defined for string-based sections
             if isinstance(section_data, str) and not section_prompt:
                 section_prompt = self.prompt_manager.get_template("research_section")
                 if not section_prompt:
-                    raise ValueError(f"Default 'research_section' prompt template not found for string section '{section_name}'.")
+                    raise ValidationError(f"Default 'research_section' prompt template not found for string section '{section_name}'.", field="prompt_template")
             
             deep_research_instruction = ""
             if self.deep_research_enabled:
@@ -323,7 +271,7 @@ class ResearchGenerator:
                 self.spinner_update_callback(f"Generating section: {section_name}")
             if spinner_update_callback: # Use the passed callback if available
                 spinner_update_callback(f"Generating section: {section_name}")
-            logging.info(f"Generating section: {section_name}")
+            logger.info(f"Generating section: {section_name}")
             return self._make_api_call_with_retry(final_prompt, section_name)
             
         except ValueError as e:
@@ -331,14 +279,14 @@ class ResearchGenerator:
                 self.spinner_update_callback(f"Validation error in generate_section: {e}")
             if spinner_update_callback: # Use the passed callback if available
                 spinner_update_callback(f"Validation error in generate_section: {e}")
-            logging.error(f"Validation error in generate_section: {e}")
+            logger.error(f"Validation error in generate_section: {e}")
             return f"Error: {str(e)}"
         except Exception as e:
             if self.spinner_update_callback:
                 self.spinner_update_callback(f"Unexpected error in generate_section: {e}")
             if spinner_update_callback: # Use the passed callback if available
                 spinner_update_callback(f"Unexpected error in generate_section: {e}")
-            logging.error(f"Unexpected error in generate_section: {e}")
+            logger.error(f"Unexpected error in generate_section: {e}")
             return f"Error generating {section_name}: {str(e)}"
 
     def generate_report(self) -> Dict[str, str]:
@@ -349,7 +297,7 @@ class ResearchGenerator:
             Dictionary containing all report sections
         """
         try:
-            logging.info(f"Starting report generation for topic: {self.topic}")
+            logger.info(f"Starting report generation for topic: {self.topic}")
             
             # This method is likely deprecated or used for default generation.
             # The main app() function in research.py now handles section iteration based on templates.
@@ -389,18 +337,18 @@ class ResearchGenerator:
             if failed_sections:
                 if self.spinner_update_callback:
                     self.spinner_update_callback(f"Warning: Failed to generate sections: {', '.join(failed_sections)}")
-                logging.warning(f"Failed to generate sections: {', '.join(failed_sections)}")
+                logger.warning(f"Failed to generate sections: {', '.join(failed_sections)}")
             else:
                 if self.spinner_update_callback:
                     self.spinner_update_callback("All sections are complete and ready for review!")
-                logging.info("Successfully generated all report sections")
+                logger.info("Successfully generated all report sections")
             
             return sections
             
         except Exception as e:
             if self.spinner_update_callback:
                 self.spinner_update_callback(f"Critical error generating report: {e}")
-            logging.error(f"Critical error generating report: {e}")
+            logger.error(f"Critical error generating report: {e}")
             # Return error sections
             return {
                 "Introduction": f"Error: Failed to generate report - {str(e)}",
@@ -424,7 +372,7 @@ class ResearchGenerator:
         """
         try:
             if not section_name or not isinstance(section_name, str):
-                raise ValueError("Section name must be a non-empty string")
+                raise ValidationError("Section name must be a non-empty string", field="section_name", value=section_name)
             
             section_name = section_name.strip()
             
@@ -441,18 +389,18 @@ class ResearchGenerator:
             
             if self.spinner_update_callback:
                 self.spinner_update_callback(f"Generating custom section: {section_name}")
-            logging.info(f"Generating custom section: {section_name}")
+            logger.info(f"Generating custom section: {section_name}")
             return self._make_api_call_with_retry(prompt, section_name)
             
         except ValueError as e:
             if self.spinner_update_callback:
                 self.spinner_update_callback(f"Validation error in generate_custom_section: {e}")
-            logging.error(f"Validation error in generate_custom_section: {e}")
+            logger.error(f"Validation error in generate_custom_section: {e}")
             return f"Error: {str(e)}"
         except Exception as e:
             if self.spinner_update_callback:
                 self.spinner_update_callback(f"Unexpected error in generate_custom_section: {e}")
-            logging.error(f"Unexpected error in generate_custom_section: {e}")
+            logger.error(f"Unexpected error in generate_custom_section: {e}")
             return f"Error generating custom section '{section_name}': {str(e)}"
 
     def generate_summary(self, full_report_content: str) -> str:
@@ -467,7 +415,7 @@ class ResearchGenerator:
         """
         try:
             if not full_report_content or not isinstance(full_report_content, str):
-                raise ValueError("Full report content must be a non-empty string for summarization.")
+                raise ValidationError("Full report content must be a non-empty string for summarization.", field="full_report_content", value=full_report_content)
             
             summary_word_count = "200-300"
             summary_detail_instruction = "concise"
@@ -488,17 +436,17 @@ class ResearchGenerator:
             
             if self.spinner_update_callback:
                 self.spinner_update_callback("Generating executive summary.")
-            logging.info("Generating executive summary.")
+            logger.info("Generating executive summary.")
             return self._make_api_call_with_retry(prompt, "Executive Summary")
             
         except ValueError as e:
             if self.spinner_update_callback:
                 self.spinner_update_callback(f"Validation error in generate_summary: {e}")
-            logging.error(f"Validation error in generate_summary: {e}")
+            logger.error(f"Validation error in generate_summary: {e}")
             return f"Error: {str(e)}"
         except Exception as e:
             if self.spinner_update_callback:
                 self.spinner_update_callback(f"Unexpected error in generate_summary: {e}")
-            logging.error(f"Unexpected error in generate_summary: {e}")
+            logger.error(f"Unexpected error in generate_summary: {e}")
             return f"Error generating executive summary: {str(e)}"
 

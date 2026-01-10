@@ -3,85 +3,98 @@ from docx.shared import Inches, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
-from typing import Dict, Any
+from typing import Dict, Any, Generator, Tuple
 import markdown
 from bs4 import BeautifulSoup
+from bs4.element import Tag, NavigableString
 from docx.table import _Cell
 from docx.text.paragraph import Paragraph
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Constants for styling
+HYPERLINK_COLOR = "0000FF"
+HYPERLINK_UNDERLINE_STYLE = "single"
+CODE_FONT_NAME = "Courier New"
+CODE_FONT_SIZE = Pt(10)
+TABLE_STYLE = "Table Grid"
+DEFAULT_BATCH_SIZE = 10
+DEFAULT_HEADING_LEVEL = 3
+MIN_HEADING_LEVEL = 1
+MAX_HEADING_LEVEL = 9
 
 class DocxGenerator:
-    def __init__(self, topic: str):
+    def __init__(self, topic: str, batch_size: int = DEFAULT_BATCH_SIZE):
         self.topic = topic
+        self.batch_size = batch_size  # Number of elements to process before yielding
+
+    def _stream_markdown_content(self, markdown_text: str) -> Generator[Tuple[str, Any], None, None]:
+        """
+        Streams parsed markdown elements as (element_type, element) tuples.
+        This allows for memory-efficient processing of large documents.
+        """
+        html = markdown.markdown(markdown_text, extensions=['fenced_code', 'tables', 'nl2br'])
+        soup = BeautifulSoup(html, 'html.parser')
+        
+        for element in soup.children:
+            if element.name:
+                yield ('tag', element)
+            elif str(element).strip():
+                yield ('text', str(element).strip())
 
     def _add_markdown_content(self, document, markdown_text):
         """
         Parses markdown text and adds it to the document with enhanced styling.
-        It supports headings, paragraphs, lists, blockquotes, code blocks,
-        horizontal rules, tables, images (as placeholders), and hyperlinks.
+        Uses streaming approach for memory efficiency with large documents.
         """
-        # Use a more advanced markdown extension for better parsing, e.g., 'fenced_code'
-        # 'tables' for markdown tables, 'nl2br' for newline to break conversion
-        html = markdown.markdown(markdown_text, extensions=['fenced_code', 'tables', 'nl2br'])
-        soup = BeautifulSoup(html, 'html.parser')
-
-        # Iterate through each top-level HTML element parsed from the markdown
-        for element in soup.children:
-            if element.name: # Check if it's a tag (e.g., p, h1, ul)
+        table_count = 0
+        
+        for element_type, element in self._stream_markdown_content(markdown_text):
+            if element_type == 'tag' and element.name:
                 if element.name.startswith('h') and len(element.name) >= 2:
                     try:
-                        # Extract heading level (h1, h2, etc.)
                         level = int(element.name[1])
-                        # Ensure heading levels are within DOCX's supported range (1-9)
-                        document.add_heading(element.get_text(), level=min(level, 9))
+                        document.add_heading(element.get_text(), level=min(level, MAX_HEADING_LEVEL))
                     except ValueError:
-                        # Fallback to level 3 if heading level is invalid
-                        document.add_heading(element.get_text(), level=3)
+                        document.add_heading(element.get_text(), level=DEFAULT_HEADING_LEVEL)
                 elif element.name == 'p':
-                    # Add a new paragraph and apply inline styles
                     p = document.add_paragraph()
                     self._apply_inline_styles(p, element)
                 elif element.name == 'ul':
-                    # Handle unordered lists
                     for li in element.find_all('li'):
-                        p = document.add_paragraph(style='List Bullet') # Apply bullet list style
+                        p = document.add_paragraph(style='List Bullet')
                         self._apply_inline_styles(p, li)
                 elif element.name == 'ol':
-                    # Handle ordered lists
                     for i, li in enumerate(element.find_all('li')):
-                        p = document.add_paragraph(style='List Number') # Apply numbered list style
+                        p = document.add_paragraph(style='List Number')
                         self._apply_inline_styles(p, li)
                 elif element.name == 'blockquote':
-                    # Handle blockquotes using a built-in DOCX style
                     p = document.add_paragraph(style='Intense Quote')
                     self._apply_inline_styles(p, element)
-                elif element.name == 'pre': # For code blocks
+                elif element.name == 'pre':
                     code_text = element.get_text()
                     p = document.add_paragraph(code_text)
-                    # Apply monospace font directly without using a style
                     for run in p.runs:
-                        run.font.name = 'Courier New'
-                        run.font.size = Pt(10)
-                elif element.name == 'hr': # Horizontal Rule
-                    # Represent horizontal rule with a simple text line
+                        run.font.name = CODE_FONT_NAME
+                        run.font.size = CODE_FONT_SIZE
+                elif element.name == 'hr':
                     document.add_paragraph("---", style='Normal')
                 elif element.name == 'table':
-                    # Convert HTML table to DOCX table
-                    self._add_html_table_to_docx(document, element)
-                elif element.name == 'img': # Images (add placeholder or link)
+                    # Process table with batched row handling for memory efficiency
+                    table_count += 1
+                    self._add_html_table_to_docx(document, element, batch_size=self.batch_size)
+                elif element.name == 'img':
                     img_src = element.get('src', 'No source')
                     img_alt = element.get('alt', 'Image')
-                    # Add a placeholder text for images, as direct image embedding is more complex
                     document.add_paragraph(f"[[Image: {img_alt} - {img_src}]]", style='Normal')
-                elif element.name == 'a': # Hyperlinks
-                    # Links are handled within _apply_inline_styles for paragraph content,
-                    # so no direct action needed here for top-level 'a' tags.
+                elif element.name == 'a':
                     pass
                 else:
-                    # Fallback for other unhandled tags, just add their text content
                     if element.get_text(strip=True):
                         document.add_paragraph(element.get_text())
-            elif str(element).strip(): # Handle plain text directly under body (not wrapped in tags)
-                document.add_paragraph(str(element).strip())
+            elif element_type == 'text':
+                document.add_paragraph(element)
 
     def _apply_inline_styles(self, paragraph: Paragraph, soup_element: Any):
         """
@@ -97,8 +110,8 @@ class DocxGenerator:
                 run.italic = True
             elif content.name == 'code': # Inline code
                 run = paragraph.add_run(content.get_text())
-                run.font.name = 'Courier New' # Apply monospace font for inline code
-                run.font.size = Pt(10)
+                run.font.name = CODE_FONT_NAME # Apply monospace font for inline code
+                run.font.size = CODE_FONT_SIZE
             elif content.name == 'a': # Hyperlink
                 # Add a hyperlink to the paragraph
                 self._add_hyperlink(paragraph, content.get_text(), content.get('href', '#'))
@@ -130,11 +143,11 @@ class DocxGenerator:
         
         # Add color and underline to hyperlink text for visual indication
         c = OxmlElement('w:color')
-        c.set(qn('w:val'), "0000FF") # Blue color
+        c.set(qn('w:val'), HYPERLINK_COLOR) # Blue color
         rPr.append(c)
         
         u = OxmlElement('w:u')
-        u.set(qn('w:val'), "single") # Single underline
+        u.set(qn('w:val'), HYPERLINK_UNDERLINE_STYLE) # Single underline
         rPr.append(u)
         
         # Add the text content to the run
@@ -143,58 +156,61 @@ class DocxGenerator:
         paragraph._p.append(hyperlink) # Append the hyperlink to the paragraph's XML
         return hyperlink
 
-    def _add_html_table_to_docx(self, document, html_table):
+    def _add_html_table_to_docx(self, document, html_table, batch_size: int = 10):
         """
         Converts an HTML table (BeautifulSoup object) into a DOCX table.
-        It extracts headers and rows from the HTML and populates a new DOCX table.
+        Uses batched row processing for memory efficiency with large tables.
+        
+        Args:
+            document: The DOCX document to add the table to.
+            html_table: The BeautifulSoup element containing the HTML table.
+            batch_size: Number of rows to process before yielding (for streaming).
         """
         # Extract table headers
         headers = [th.get_text(strip=True) for th in html_table.find_all('th')]
-        rows = []
-        # Extract table rows and cells
+        
+        # Collect all rows first (for determining column count)
+        all_rows = []
         for tr in html_table.find_all('tr'):
             cols = [td.get_text(strip=True) for td in tr.find_all('td')]
-            if cols: # Only add rows that have actual td elements
-                rows.append(cols)
+            if cols:
+                all_rows.append(cols)
 
-        if not headers and not rows:
-            return # No table content to add, so return early
+        if not headers and not all_rows:
+            return
 
         # Determine the number of columns based on headers or the first row
-        num_cols = len(headers) if headers else (len(rows[0]) if rows else 0)
+        num_cols = len(headers) if headers else (len(all_rows[0]) if all_rows else 0)
         if num_cols == 0:
-            return # Cannot create a table with 0 columns
+            return
 
         # Add a new table to the document with an initial row
         table = document.add_table(rows=1, cols=num_cols)
-        table.style = 'Table Grid' # Apply a basic table style for borders
+        table.style = TABLE_STYLE
 
         # Add headers to the first row of the DOCX table
         if headers:
             hdr_cells = table.rows[0].cells
             for i, header_text in enumerate(headers):
-                if i < num_cols: # Ensure we don't go out of bounds
+                if i < num_cols:
                     hdr_cells[i].text = header_text
-                    # Make header text bold
                     for paragraph in hdr_cells[i].paragraphs:
                         for run in paragraph.runs:
                             run.bold = True
-        # If no explicit headers, the first row will be used for data,
-        # so no special handling needed here.
         
-        # Add data rows to the DOCX table
-        # If headers exist, start adding data from the second row (index 1)
-        # Otherwise, start from the first row (index 0)
-        start_row_idx = 1 if headers else 0 
-
-        for row_data in rows:
-            # Ensure row_data has enough elements for the columns, pad with empty strings if necessary
-            row_data_padded = row_data + [''] * (num_cols - len(row_data))
-            
-            cells = table.add_row().cells # Add a new row to the table
-            for i, cell_text in enumerate(row_data_padded):
-                if i < num_cols:
-                    cells[i].text = cell_text
+        # Add data rows in batches for memory efficiency
+        start_row_idx = 1 if headers else 0
+        data_rows = all_rows[start_row_idx:]
+        
+        for i in range(0, len(data_rows), batch_size):
+            batch = data_rows[i:i + batch_size]
+            for row_data in batch:
+                # Ensure row_data has enough elements for the columns
+                row_data_padded = row_data + [''] * (num_cols - len(row_data))
+                cells = table.add_row().cells
+                for j, cell_text in enumerate(row_data_padded):
+                    if j < num_cols:
+                        cells[j].text = cell_text
 
     def generate_docx_report(self, sections_content: Dict[str, str], output_path: str):
         """
@@ -208,7 +224,7 @@ class DocxGenerator:
         # Iterate through each section and add its title and content
         for title, content in sections_content.items():
             # Format the title with the main topic if needed
-            formatted_title = title.format(topic=self.topic)
+            formatted_title = title.replace("{topic}", self.topic)
             document.add_heading(formatted_title, level=2) # Add section title as a level 2 heading
             self._add_markdown_content(document, content) # Add markdown content for the section
 

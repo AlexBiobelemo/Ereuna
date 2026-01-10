@@ -3,7 +3,7 @@ import json
 import logging
 from typing import Dict, List, Optional, Any
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class TemplateManager:
     """
@@ -18,7 +18,7 @@ class TemplateManager:
     def _load_templates(self):
         """Loads all JSON template files from the template directory."""
         if not os.path.exists(self.template_dir):
-            logging.warning(f"Template directory '{self.template_dir}' not found.")
+            logger.warning(f"Template directory '{self.template_dir}' not found.")
             return
 
         for filename in os.listdir(self.template_dir):
@@ -30,16 +30,16 @@ class TemplateManager:
                         template_name = template_data.get("name")
                         if template_name:
                             self.templates[template_name] = template_data
-                            logging.info(f"Loaded template: {template_name}")
+                            logger.info(f"Loaded template: {template_name}")
                         else:
-                            logging.warning(f"Template file '{filename}' is missing a 'name' field.")
+                            logger.warning(f"Template file '{filename}' is missing a 'name' field.")
                 except json.JSONDecodeError as e:
-                    logging.error(f"Error decoding JSON from template file '{filename}': {e}")
+                    logger.error(f"Error decoding JSON from template file '{filename}': {e}")
                 except Exception as e:
-                    logging.error(f"Error loading template file '{filename}': {e}")
+                    logger.error(f"Error loading template file '{filename}': {e}")
         
         if not self.templates:
-            logging.info("No custom templates found or loaded.")
+            logger.info("No custom templates found or loaded.")
 
     def get_template_names(self) -> List[str]:
         """Returns a list of available template names."""

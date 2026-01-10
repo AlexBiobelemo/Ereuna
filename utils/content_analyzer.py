@@ -7,7 +7,7 @@ import requests # For potential external API calls
 from utils.config_manager import ConfigManager # Import ConfigManager
 import os
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class ContentAnalyzer:
     """
@@ -20,9 +20,9 @@ class ContentAnalyzer:
         # Placeholder for semantic analysis model/client
         self.semantic_model = None # e.g., a pre-trained NLP model or client for an external API
         if self.config_manager:
-            logging.info("ContentAnalyzer initialized with ConfigManager.")
+            logger.info("ContentAnalyzer initialized with ConfigManager.")
         else:
-            logging.warning("ContentAnalyzer initialized without ConfigManager. External API integrations may be limited.")
+            logger.warning("ContentAnalyzer initialized without ConfigManager. External API integrations may be limited.")
 
     def analyze_readability(self, text: str) -> Dict[str, float]:
         """
@@ -35,7 +35,7 @@ class ContentAnalyzer:
             A dictionary of readability scores.
         """
         if not text or not isinstance(text, str):
-            logging.warning("No text provided for readability analysis.")
+            logger.warning("No text provided for readability analysis.")
             return {}
 
         try:
@@ -46,10 +46,10 @@ class ContentAnalyzer:
                 "Automated Readability Index": automated_readability_index(text),
                 "Dale-Chall Readability Score": dale_chall_readability_score(text)
             }
-            logging.info("Readability analysis completed.")
+            logger.info("Readability analysis completed.")
             return scores
         except Exception as e:
-            logging.error(f"Error during readability analysis: {e}")
+            logger.error(f"Error during readability analysis: {e}")
             return {"error": str(e)}
 
     def _check_plagiarism(self, text: str) -> Dict[str, Any]:
@@ -92,10 +92,10 @@ class ContentAnalyzer:
                 "details": "Simulated plagiarism check. Integrate with a third-party API for actual results."
             }
         except requests.exceptions.RequestException as e:
-            logging.error(f"Error during external plagiarism check: {e}")
+            logger.error(f"Error during external plagiarism check: {e}")
             return {"status": "error", "details": f"Failed to connect to plagiarism API: {e}"}
         except Exception as e:
-            logging.error(f"Unexpected error during plagiarism check: {e}")
+            logger.error(f"Unexpected error during plagiarism check: {e}")
             return {"status": "error", "details": f"An unexpected error occurred: {e}"}
 
     def _check_facts(self, text: str) -> Dict[str, Any]:
@@ -134,10 +134,10 @@ class ContentAnalyzer:
                 "details": "Simulated fact check. Integrate with a third-party API for actual results."
             }
         except requests.exceptions.RequestException as e:
-            logging.error(f"Error during external fact check: {e}")
+            logger.error(f"Error during external fact check: {e}")
             return {"status": "error", "details": f"Failed to connect to fact-checking API: {e}"}
         except Exception as e:
-            logging.error(f"Unexpected error during fact check: {e}")
+            logger.error(f"Unexpected error during fact check: {e}")
             return {"status": "error", "details": f"An unexpected error occurred: {e}"}
 
     def perform_external_checks(self, text: str) -> Dict[str, Any]:
@@ -145,12 +145,12 @@ class ContentAnalyzer:
         Performs external checks like plagiarism and fact-checking.
         """
         if not text or not isinstance(text, str):
-            logging.warning("No text provided for external checks.")
+            logger.warning("No text provided for external checks.")
             return {}
         
         results = {
             "plagiarism_check": self._check_plagiarism(text),
             "fact_check": self._check_facts(text)
         }
-        logging.info("External checks completed.")
+        logger.info("External checks completed.")
         return results

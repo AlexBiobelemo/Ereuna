@@ -3,7 +3,7 @@ import json
 import logging
 from typing import Dict, Any, Optional
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class PromptManager:
     """
@@ -17,7 +17,7 @@ class PromptManager:
         """Loads prompt templates from the specified directory."""
         self.templates: Dict[str, str] = {}
         if not os.path.exists(self.template_dir):
-            logging.warning(f"Prompt template directory not found: {self.template_dir}. Creating default templates.")
+            logger.warning(f"Prompt template directory not found: {self.template_dir}. Creating default templates.")
             os.makedirs(self.template_dir, exist_ok=True)
             self._create_default_templates()
             return
@@ -30,14 +30,14 @@ class PromptManager:
                         template_data = json.load(f)
                         template_name = os.path.splitext(filename)[0]
                         self.templates[template_name] = template_data.get("prompt", "")
-                        logging.info(f"Loaded prompt template: {template_name}")
+                        logger.info(f"Loaded prompt template: {template_name}")
                 except json.JSONDecodeError as e:
-                    logging.error(f"Error decoding JSON from {filepath}: {e}")
+                    logger.error(f"Error decoding JSON from {filepath}: {e}")
                 except Exception as e:
-                    logging.error(f"Error loading prompt template {filepath}: {e}")
+                    logger.error(f"Error loading prompt template {filepath}: {e}")
         
         if not self.templates:
-            logging.warning(f"No prompt templates found in {self.template_dir}. Creating default templates.")
+            logger.warning(f"No prompt templates found in {self.template_dir}. Creating default templates.")
             self._create_default_templates()
 
     def _create_default_templates(self):
@@ -98,9 +98,9 @@ Please provide a clear, concise answer, explicitly mentioning that this informat
                 with open(filepath, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=4)
                 self.templates[name] = data["prompt"]
-                logging.info(f"Created default prompt template: {name}.json")
+                logger.info(f"Created default prompt template: {name}.json")
             except Exception as e:
-                logging.error(f"Error creating default prompt template {filepath}: {e}")
+                logger.error(f"Error creating default prompt template {filepath}: {e}")
 
     def get_template(self, template_name: str) -> Optional[str]:
         """Retrieves a prompt template by name."""
@@ -127,8 +127,8 @@ Please provide a clear, concise answer, explicitly mentioning that this informat
         try:
             return template.format(**kwargs)
         except KeyError as e:
-            logging.error(f"Missing placeholder in template '{template_name}': {e}")
+            logger.error(f"Missing placeholder in template '{template_name}': {e}")
             raise ValueError(f"Missing data for prompt placeholder: {e}. Check template '{template_name}'.")
         except Exception as e:
-            logging.error(f"Error formatting prompt template '{template_name}': {e}")
+            logger.error(f"Error formatting prompt template '{template_name}': {e}")
             raise

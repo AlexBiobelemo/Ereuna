@@ -10,6 +10,8 @@ from utils.template_manager import TemplateManager
 from utils.chat_manager import ChatManager
 from utils.config_manager import ConfigManager # Import ConfigManager
 from utils.prompt_manager import PromptManager # Import PromptManager
+from utils.hierarchical_generator import HierarchicalGenerator, CheckpointManager # Import HierarchicalGenerator
+from utils.modular_exporter import ModularExporter, create_modular_exporter # Import ModularExporter
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -126,6 +128,65 @@ def app():
         )
         SessionStateManager.set_value('deep_research_enabled', deep_research_enabled)
 
+    # --- Large Document Generation Configuration ---
+    st.markdown("---")
+    st.subheader("📚 Large Document Generation")
+    
+    col_ld1, col_ld2, col_ld3 = st.columns(3)
+    
+    with col_ld1:
+        hierarchical_enabled = st.checkbox(
+            "Enable Hierarchical Generation",
+            value=SessionStateManager.is_hierarchical_generation_enabled(),
+            help="Generate research as multiple volumes for large documents (200+ pages)"
+        )
+        SessionStateManager.set_hierarchical_generation_enabled(hierarchical_enabled)
+    
+    if hierarchical_enabled:
+        with col_ld2:
+            sections_per_volume = st.number_input(
+                "Sections per Volume",
+                min_value=5,
+                max_value=20,
+                value=SessionStateManager.get_sections_per_volume(),
+                help="Number of sections to include in each volume"
+            )
+            SessionStateManager.set_large_document_settings(
+                sections_per_volume=sections_per_volume,
+                total_target_sections=SessionStateManager.get_total_target_sections(),
+                enable_checkpoint_resume=SessionStateManager.is_checkpoint_resume_enabled()
+            )
+        
+        with col_ld3:
+            total_sections = st.number_input(
+                "Total Sections",
+                min_value=10,
+                max_value=100,
+                value=SessionStateManager.get_total_target_sections(),
+                help="Total number of sections to generate"
+            )
+            SessionStateManager.set_large_document_settings(
+                sections_per_volume=sections_per_volume,
+                total_target_sections=total_sections,
+                enable_checkpoint_resume=SessionStateManager.is_checkpoint_resume_enabled()
+            )
+        
+        # Checkpoint resume option
+        enable_checkpoint = st.checkbox(
+            "Enable Checkpoint Resume",
+            value=SessionStateManager.is_checkpoint_resume_enabled(),
+            help="Save progress periodically to resume from checkpoint if interrupted"
+        )
+        SessionStateManager.set_large_document_settings(
+            sections_per_volume=sections_per_volume,
+            total_target_sections=total_sections,
+            enable_checkpoint_resume=enable_checkpoint
+        )
+        
+        # Show estimated page count
+        estimated_pages = (total_sections * 1000) // 250  # ~1000 words/section, 250 words/page
+        st.info(f"📊 Estimated Output: {sections_per_volume} sections/volume × {total_sections // sections_per_volume + (1 if total_sections % sections_per_volume > 0 else 0)} volumes ≈ {estimated_pages} pages")
+    
     keywords = [k.strip() for k in keywords_input.split(',') if k.strip()]
     research_questions = [q.strip() for q in research_questions_input.split(',') if q.strip()]
 
@@ -178,9 +239,10 @@ def app():
         )
     
     with col_btn2:
-        if SessionStateManager.get_value('research_generated', False):
+        if SessionStateManager.get_value('research_generated', False) or SessionStateManager.is_hierarchical_generation_complete():
             if st.button("🔄 Start New Research", use_container_width=True):
                 SessionStateManager.clear_research_data()
+                SessionStateManager.clear_hierarchical_data()
                 st.rerun()
     
     # --- Generation Process ---
@@ -199,34 +261,111 @@ def app():
                 spinner_message_placeholder = st.empty()
                 st.session_state.update_spinner = lambda msg: spinner_message_placeholder.text(f"✨ {msg}")
 
-                research_gen = ResearchGenerator(
-                    topic=topic,
-                    keywords=keywords,
-                    research_questions=research_questions,
-                    config_manager=config_manager, # Pass config_manager
-                    prompt_manager=prompt_manager, # Pass prompt_manager
-                    model_name=selected_model_name,
-                    spinner_update_callback=st.session_state.update_spinner
-                )
-                
-                # Generate sections based on the template
-                sections_content = {}
-                all_previous_content = "" # Initialize for contextual generation
+                # Check if hierarchical generation is enabled
+                if SessionStateManager.is_hierarchical_generation_enabled():
+                    # Hierarchical generation for large documents
+                    st.info("🔄 Using hierarchical generation for large document...")
+                    
+                    # Initialize checkpoint manager
+                    checkpoint_manager = CheckpointManager()
+                    
+                    # Check for existing checkpoint
+                    use_checkpoint = SessionStateManager.is_checkpoint_resume_enabled()
+                    existing_checkpoint = checkpoint_manager.load_checkpoint(topic) if use_checkpoint else None
+                    
+                    if existing_checkpoint and use_checkpoint:
+                        st.warning(f"📂 Found existing checkpoint from {existing_checkpoint.timestamp}")
+                        if st.button("Resume from Checkpoint"):
+                            # Will resume from checkpoint
+                            pass
+                        elif st.button("Start Fresh (clears checkpoint)"):
+                            checkpoint_manager.save_checkpoint(existing_checkpoint)  # This will be overwritten
+                    
+                    # Create hierarchical generator
+                    hierarchical_gen = HierarchicalGenerator(
+                        topic=topic,
+                        keywords=keywords,
+                        research_questions=research_questions,
+                        config_manager=config_manager,
+                        prompt_manager=prompt_manager,
+                        model_name=selected_model_name,
+                        spinner_update_callback=st.session_state.update_spinner,
+                        checkpoint_manager=checkpoint_manager,
+                        sections_per_volume=SessionStateManager.get_sections_per_volume()
+                    )
+                    
+                    # Progress callback
+                    def progress_callback(progress):
+                        SessionStateManager.update_hierarchical_progress(
+                            current_volume=progress['current_volume'],
+                            total_volumes=progress['total_volumes'],
+                            volume_title=progress['volume_title']
+                        )
+                        st.progress(progress['progress_pct'] / 100)
+                        st.session_state.update_spinner(f"📖 Generating {progress['volume_title']} ({progress['current_volume']}/{progress['total_volumes']})")
+                    
+                    # Generate hierarchical research
+                    hierarchical_result = hierarchical_gen.generate(
+                        num_sections=SessionStateManager.get_total_target_sections(),
+                        use_checkpoint=use_checkpoint,
+                        progress_callback=progress_callback
+                    )
+                    
+                    # Store results
+                    sections_content = {}
+                    volume_contents = hierarchical_result.get('volume_contents', {})
+                    volume_titles = {}
+                    
+                    for vol_num, vol_content in volume_contents.items():
+                        sections_content.update(vol_content)
+                        # Create volume title
+                        vol_title = f"Volume {vol_num}"
+                        volume_titles[vol_num] = vol_title
+                    
+                    # Store in session state
+                    SessionStateManager.store_hierarchical_data(
+                        master_outline=hierarchical_result.get('outline', []),
+                        volume_plans=hierarchical_result.get('volumes', []),
+                        volume_contents=volume_contents,
+                        completed_volumes=list(volume_contents.keys()),
+                        total_volumes=hierarchical_result.get('total_volumes', 0)
+                    )
+                    
+                    st.success(f"✅ Hierarchical generation complete! Generated {hierarchical_result.get('total_volumes', 0)} volumes")
+                    
+                    # Store in old format for backward compatibility
+                    SessionStateManager.store_research_data(sections_content, topic, keywords_input, research_questions_input, selected_model_name)
+                    
+                else:
+                    # Standard generation for smaller documents
+                    research_gen = ResearchGenerator(
+                        topic=topic,
+                        keywords=keywords,
+                        research_questions=research_questions,
+                        config_manager=config_manager, # Pass config_manager
+                        prompt_manager=prompt_manager, # Pass prompt_manager
+                        model_name=selected_model_name,
+                        spinner_update_callback=st.session_state.update_spinner
+                    )
+                    
+                    # Generate sections based on the template
+                    sections_content = {}
+                    all_previous_content = "" # Initialize for contextual generation
 
-                for section_data in sections_to_generate:
-                    section_title = ""
-                    if isinstance(section_data, dict) and "title" in section_data:
-                        section_title = section_data["title"]
-                        generated_content = research_gen.generate_section(section_data, previous_sections_content=all_previous_content)
-                    elif isinstance(section_data, str):
-                        section_title = section_data
-                        generated_content = research_gen.generate_section(section_data, previous_sections_content=all_previous_content)
-                    else:
-                        logging.warning(f"Skipping invalid section data in template: {section_data}")
-                        continue # Skip to next section
+                    for section_data in sections_to_generate:
+                        section_title = ""
+                        if isinstance(section_data, dict) and "title" in section_data:
+                            section_title = section_data["title"]
+                            generated_content = research_gen.generate_section(section_data, previous_sections_content=all_previous_content)
+                        elif isinstance(section_data, str):
+                            section_title = section_data
+                            generated_content = research_gen.generate_section(section_data, previous_sections_content=all_previous_content)
+                        else:
+                            logging.warning(f"Skipping invalid section data in template: {section_data}")
+                            continue # Skip to next section
 
-                    sections_content[section_title] = generated_content
-                    all_previous_content += f"\n\n## {section_title}\n{generated_content}" # Append for next section's context
+                        sections_content[section_title] = generated_content
+                        all_previous_content += f"\n\n## {section_title}\n{generated_content}" # Append for next section's context
 
             # Check for errors in sections
             error_sections = [name for name, content in sections_content.items() 
@@ -424,9 +563,170 @@ def app():
                         use_container_width=True
                     )
 
+        # --- Modular Export for Hierarchical Generation ---
+        if SessionStateManager.is_hierarchical_generation_enabled() and SessionStateManager.is_hierarchical_generation_complete():
+            st.divider()
+            st.subheader("📦 Modular Export Options")
+            
+            st.info("Export your large research document as multiple volumes or a complete master document.")
+            
+            col_exp1, col_exp2, col_exp3 = st.columns(3)
+            
+            with col_exp1:
+                if st.button("📄 Export Individual Volumes", use_container_width=True):
+                    try:
+                        with st.spinner("Exporting individual volumes..."):
+                            volume_contents = SessionStateManager.get_volume_contents()
+                            
+                            # Create exporter
+                            exporter = create_modular_exporter(
+                                topic=topic,
+                                output_dir="exports",
+                                include_toc=True,
+                                include_cover_page=True,
+                                cross_reference_volumes=True
+                            )
+                            
+                            # Get volume titles
+                            volume_plans = SessionStateManager.get_volume_plans()
+                            volume_titles = {}
+                            for vol_plan in volume_plans:
+                                volume_titles[vol_plan.get('volume_number', 0)] = vol_plan.get('volume_title', f"Volume {vol_plan.get('volume_number', 0)}")
+                            
+                            # Export all volumes
+                            exported = exporter.export_all_volumes(volume_contents, volume_titles)
+                            
+                            # Store manifest
+                            summary = exporter.get_export_summary()
+                            SessionStateManager.store_modular_exports(summary, exporter.master_doc_path)
+                            
+                            st.success(f"✅ Exported {len(exported)} volumes!")
+                            
+                            # Show summary
+                            with st.expander("Export Summary"):
+                                st.write(f"Total Volumes: {summary['total_volumes']}")
+                                st.write(f"Total Pages: {summary['total_estimated_pages']}")
+                                st.write(f"Total Size: {summary['total_file_size_mb']} MB")
+                                
+                                for vol in summary['volumes']:
+                                    st.write(f"- Volume {vol['volume_number']}: {vol['file_path']} ({vol['pages']} pages)")
+                    except Exception as e:
+                        st.error(f"❌ Export failed: {str(e)}")
+                        logging.error(f"Modular export error: {e}")
+            
+            with col_exp2:
+                if st.button("📚 Generate Master Document", use_container_width=True):
+                    try:
+                        with st.spinner("Generating master document..."):
+                            volume_contents = SessionStateManager.get_volume_contents()
+                            
+                            # Create exporter
+                            exporter = create_modular_exporter(
+                                topic=topic,
+                                output_dir="exports",
+                                include_toc=True,
+                                include_cover_page=True,
+                                cross_reference_volumes=True
+                            )
+                            
+                            # Get volume titles
+                            volume_plans = SessionStateManager.get_volume_plans()
+                            volume_titles = {}
+                            for vol_plan in volume_plans:
+                                volume_titles[vol_plan.get('volume_number', 0)] = vol_plan.get('volume_title', f"Volume {vol_plan.get('volume_number', 0)}")
+                            
+                            # Get master outline
+                            master_outline = SessionStateManager.get_master_outline()
+                            
+                            # Create master document
+                            master_path = exporter.create_master_document(
+                                volume_contents,
+                                volume_titles,
+                                master_outline
+                            )
+                            
+                            # Store manifest
+                            summary = exporter.get_export_summary()
+                            SessionStateManager.store_modular_exports(summary, master_path)
+                            
+                            st.success(f"✅ Master document created: {master_path}")
+                            
+                            # Provide download link
+                            if os.path.exists(master_path):
+                                with open(master_path, "rb") as f:
+                                    master_bytes = f.read()
+                                st.download_button(
+                                    label="📥 Download Master Document",
+                                    data=master_bytes,
+                                    file_name=os.path.basename(master_path),
+                                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                )
+                    except Exception as e:
+                        st.error(f"❌ Master document generation failed: {str(e)}")
+                        logging.error(f"Master document error: {e}")
+            
+            with col_exp3:
+                if st.button("📦 Create ZIP Archive", use_container_width=True):
+                    try:
+                        with st.spinner("Creating ZIP archive..."):
+                            volume_contents = SessionStateManager.get_volume_contents()
+                            
+                            # Create exporter
+                            exporter = create_modular_exporter(
+                                topic=topic,
+                                output_dir="exports",
+                                include_toc=True,
+                                include_cover_page=True,
+                                cross_reference_volumes=True
+                            )
+                            
+                            # Export all volumes and master document
+                            volume_plans = SessionStateManager.get_volume_plans()
+                            volume_titles = {}
+                            for vol_plan in volume_plans:
+                                volume_titles[vol_plan.get('volume_number', 0)] = vol_plan.get('volume_title', f"Volume {vol_plan.get('volume_number', 0)}")
+                            
+                            exporter.export_all_volumes(volume_contents, volume_titles)
+                            exporter.create_master_document(volume_contents, volume_titles, SessionStateManager.get_master_outline())
+                            
+                            # Create ZIP
+                            zip_path = exporter.create_zip_archive()
+                            
+                            st.success(f"✅ ZIP archive created: {zip_path}")
+                            
+                            # Provide download link
+                            if os.path.exists(zip_path):
+                                with open(zip_path, "rb") as f:
+                                    zip_bytes = f.read()
+                                st.download_button(
+                                    label="📥 Download ZIP Archive",
+                                    data=zip_bytes,
+                                    file_name=os.path.basename(zip_path),
+                                    mime="application/zip"
+                                )
+                    except Exception as e:
+                        st.error(f"❌ ZIP creation failed: {str(e)}")
+                        logging.error(f"ZIP creation error: {e}")
+            
+            # Show download links for individual volumes
+            export_manifest = SessionStateManager.get_export_manifest()
+            if export_manifest and export_manifest.get('volumes'):
+                with st.expander("📥 Download Individual Volumes"):
+                    for vol in export_manifest['volumes']:
+                        file_path = vol['file_path']
+                        if os.path.exists(file_path):
+                            with open(file_path, "rb") as f:
+                                vol_bytes = f.read()
+                            st.download_button(
+                                label=f"📄 Volume {vol['volume_number']}: {vol['volume_title']} ({vol['pages']} pages)",
+                                data=vol_bytes,
+                                file_name=os.path.basename(file_path),
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                            )
         # Success message
         if (SessionStateManager.is_file_generated('docx') or
-            SessionStateManager.is_file_generated('txt')):
+            SessionStateManager.is_file_generated('txt') or
+            SessionStateManager.is_hierarchical_generation_complete()):
             st.balloons()
 
     # --- Chat Interface ---

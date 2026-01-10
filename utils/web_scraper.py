@@ -8,7 +8,7 @@ import urllib.parse
 from googlesearch import search as google_search # Using a library for Google search
 import asyncio # Import asyncio for asynchronous operations
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class WebScraper:
     """
@@ -23,18 +23,32 @@ class WebScraper:
         }
         self.client = httpx.AsyncClient(headers=self.headers, timeout=self.timeout)
 
+    async def __aenter__(self):
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit - properly closes the HTTP client."""
+        await self.aclose()
+
+    async def aclose(self):
+        """Closes the HTTP client asynchronously."""
+        if hasattr(self, 'client') and self.client:
+            await self.client.aclose()
+            logger.info("HTTP client closed successfully.")
+
     async def _fetch_content(self, url: str) -> Optional[bytes]:
         """Fetches raw content from a given URL asynchronously."""
         try:
             response = await self.client.get(url)
             response.raise_for_status()  # Raise an HTTPStatusError for bad responses (4xx or 5xx)
-            logging.info(f"Successfully fetched content from {url}")
+            logger.info(f"Successfully fetched content from {url}")
             return response.content
         except httpx.RequestError as e:
-            logging.error(f"Error fetching content from {url}: {e}")
+            logger.error(f"Error fetching content from {url}: {e}")
             return None
         except httpx.HTTPStatusError as e:
-            logging.error(f"HTTP error fetching content from {url}: {e}")
+            logger.error(f"HTTP error fetching content from {url}: {e}")
             return None
 
     async def scrape_text_from_url(self, url: str) -> Optional[str]:
@@ -51,7 +65,7 @@ class WebScraper:
             head_response = await self.client.head(url)
             content_type = head_response.headers.get('Content-Type', '').lower()
         except httpx.RequestError as e:
-            logging.warning(f"Could not get content type for {url}: {e}. Proceeding with HTML parse attempt.")
+            logger.warning(f"Could not get content type for {url}: {e}. Proceeding with HTML parse attempt.")
             content_type = '' # Default to empty to force HTML parse fallback
 
         if 'application/pdf' in content_type:
@@ -59,7 +73,7 @@ class WebScraper:
         elif 'text/html' in content_type or 'html' in content_type:
             return self._extract_text_from_html(content)
         else:
-            logging.warning(f"Unsupported content type for {url}: {content_type}. Attempting HTML parse.")
+            logger.warning(f"Unsupported content type for {url}: {content_type}. Attempting HTML parse.")
             return self._extract_text_from_html(content) # Fallback to HTML parse
 
     def _extract_text_from_html(self, html_content: bytes) -> Optional[str]:
@@ -76,10 +90,10 @@ class WebScraper:
             chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
             # Drop blank lines
             text = '\n'.join(chunk for chunk in chunks if chunk)
-            logging.info("Successfully extracted text from HTML content.")
+            logger.info("Successfully extracted text from HTML content.")
             return text
         except Exception as e:
-            logging.error(f"Error extracting text from HTML: {e}")
+            logger.error(f"Error extracting text from HTML: {e}")
             return None
 
     def _extract_text_from_pdf_bytes(self, pdf_bytes: bytes) -> Optional[str]:
@@ -89,34 +103,42 @@ class WebScraper:
             text = ""
             for page in reader.pages:
                 text += page.extract_text() + "\n"
-            logging.info("Successfully extracted text from PDF bytes.")
+            logger.info("Successfully extracted text from PDF bytes.")
             return text
         except Exception as e:
-            logging.error(f"Error extracting text from PDF bytes: {e}")
+            logger.error(f"Error extracting text from PDF bytes: {e}")
             return None
 
-    async def search_academic_sources(self, query: str, num_results: int = 5) -> List[Dict[str, str]]:
+    async def search_academic_sources(self, query: str, num_results: int = 5, start_page: int = 0) -> List[Dict[str, str]]:
         """
         Searches academic sources using Google Search and returns a list of titles and URLs.
-        This method is kept synchronous for now as googlesearch does not have an async interface.
-        Consider running this in a thread pool executor if it becomes a bottleneck.
+        This method runs the blocking Google search in a thread pool to avoid blocking the event loop.
+        
+        Args:
+            query: The search query string.
+            num_results: Number of results to retrieve.
+            start_page: Starting page number for pagination (0-based). Each page typically returns 10 results.
+                       Use this for deep research workflows to get additional results beyond the first page.
         """
-        logging.info(f"Performing academic search for query: {query}")
+        logger.info(f"Performing academic search for query: {query} (page {start_page}, {num_results} results)")
         results = []
         try:
             # Use googlesearch to get actual search results
-            # Limiting to academic-focused domains might be beneficial, e.g., site:.edu OR site:.org OR site:.ac.uk
             search_query = f"{query} academic paper OR research OR journal"
-            # googlesearch is a blocking call, so we run it directly.
-            # In a real async application, this might be offloaded to a thread pool.
-            for url in google_search(search_query, num_results=num_results, lang='en'):
-                if url and not url.startswith("https://accounts.google.com"): # Filter out Google account links
-                    # Attempt to get a title from the URL or a simplified version
+            
+            # Run blocking google_search in a thread pool to avoid blocking the event loop
+            # The 'start' parameter enables pagination for deep research workflows
+            urls = await asyncio.to_thread(
+                lambda: list(google_search(search_query, num_results=num_results, lang='en', start=start_page))
+            )
+            
+            for url in urls:
+                if url and not url.startswith("https://accounts.google.com"):
                     parsed_url = urllib.parse.urlparse(url)
                     title = parsed_url.path.split('/')[-1].replace('_', ' ').replace('-', ' ').split('.')[0]
                     if not title:
-                        title = url # Fallback if no clear title from path
+                        title = url
                     results.append({"title": title.strip(), "url": url})
         except Exception as e:
-            logging.error(f"Error during academic search for query '{query}': {e}")
+            logger.error(f"Error during academic search for query '{query}': {e}")
         return results

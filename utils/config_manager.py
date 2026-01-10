@@ -3,7 +3,7 @@ import os
 import logging
 from typing import Dict, Any
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class ConfigManager:
     _instance = None
@@ -18,7 +18,7 @@ class ConfigManager:
         self._api_keys = self._load_api_keys()
         self._default_model = self._load_default_model()
         self._available_models = self._load_available_models()
-        logging.info("ConfigManager initialized.")
+        logger.info("ConfigManager initialized.")
 
     def _load_api_keys(self) -> Dict[str, str]:
         """Loads API keys from Streamlit secrets."""
@@ -48,6 +48,8 @@ class ConfigManager:
 
         [models.anthropic]
         claude-3-opus-20240229 = { display_name = "Claude 3 Opus", provider = "claude" }
+        
+        In production, fails loudly if secrets are missing. In development, uses hardcoded fallbacks.
         """
         available_models = {}
         if "models" in st.secrets:
@@ -58,26 +60,46 @@ class ConfigManager:
                         "provider": model_info.get("provider", provider_key)
                     }
         
-        # Add hardcoded defaults if no models are found in secrets
+        # Fail loudly if no models are found in secrets (production mode)
         if not available_models:
-            logging.warning("No LLM models found in st.secrets. Using hardcoded defaults.")
-            available_models = {
-                "gemini-2.5-flash": {"display_name": "Gemini 2.5 Flash", "provider": "gemini"},
-                "gemini-1.5-pro": {"display_name": "Gemini 1.5 Pro", "provider": "gemini"},
-                "gpt-4o": {"display_name": "GPT-4o", "provider": "gpt"},
-                "gpt-3.5-turbo": {"display_name": "GPT-3.5 Turbo", "provider": "gpt"},
-                "claude-3-opus-20240229": {"display_name": "Claude 3 Opus", "provider": "claude"},
-                "claude-3-sonnet-20240229": {"display_name": "Claude 3 Sonnet", "provider": "claude"},
-            }
+            is_development = os.environ.get("STREAMLIT_ENV", "production").lower() == "development"
+            if is_development:
+                logger.warning("No LLM models found in st.secrets. Using hardcoded defaults (development mode only).")
+                available_models = {
+                    "gemini-2.5-pro": {"display_name": "Gemini 2.5 Pro", "provider": "gemini"},
+                    "gemini-2.5-flash": {"display_name": "Gemini 2.5 Flash", "provider": "gemini"},
+                    "gemini-3-pro": {"display_name": "Gemini 3 Pro", "provider": "gemini"},
+                    "gemini-3-flash": {"display_name": "Gemini 3 Flash", "provider": "gemini"},
+                    "gpt-5.2": {"display_name": "GPT-5.2", "provider": "gpt"},
+                    "gpt-5.1": {"display_name": "GPT-5.1", "provider": "gpt"},
+                    "gpt-5": {"display_name": "GPT-5", "provider": "gpt"},
+                    "gpt-5-pro": {"display_name": "GPT-5 Pro", "provider": "gpt"},
+                    "gpt-5-mini": {"display_name": "GPT-5 Mini", "provider": "gpt"},
+                    "claude-sonnet-4-20250514": {"display_name": "Claude Sonnet 4", "provider": "claude"},
+                    "claude-opus-4-20250514": {"display_name": "Claude Opus 4", "provider": "claude"},
+                    "claude-3-5-sonnet-20241022": {"display_name": "Claude 3.5 Sonnet", "provider": "claude"},
+                }
+            else:
+                raise ValueError(
+                    "No LLM models found in st.secrets. "
+                    "Please configure [models] section in your secrets.toml file. "
+                    "Set STREAMLIT_ENV=development to use fallbacks."
+                )
         return available_models
 
     def get_api_keys(self) -> Dict[str, str]:
+        if not hasattr(self, '_api_keys') or self._api_keys is None:
+            self._api_keys = self._load_api_keys()
         return self._api_keys
 
     def get_default_model(self) -> str:
+        if not hasattr(self, '_default_model') or self._default_model is None:
+            self._default_model = self._load_default_model()
         return self._default_model
 
     def get_available_models(self) -> Dict[str, Any]:
+        if not hasattr(self, '_available_models') or self._available_models is None:
+            self._available_models = self._load_available_models()
         return self._available_models
 
     def get_model_provider(self, model_name: str):
