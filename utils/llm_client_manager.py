@@ -81,16 +81,17 @@ class _GenaiModelWrapper:
             endpoint = f"https://generativelanguage.googleapis.com/v1beta2/models/{model_id}:generate"
 
             headers = {"Content-Type": "application/json"}
-            params = {}
-            # If API key looks like an API key (starts with AIza), pass as ?key=, otherwise use Bearer
-            if isinstance(self._api_key, str) and self._api_key.startswith("AIza"):
-                params['key'] = self._api_key
-            else:
-                headers['Authorization'] = f"Bearer {self._api_key}"
+            # Avoid placing API keys in the URL to prevent accidental logging.
+            # Prefer Authorization header for REST calls. If this fails for your
+            # environment, consider updating to an OAuth bearer token or enabling
+            # a dedicated configuration flag.
+            if not self._api_key:
+                raise RuntimeError('No API key available for REST fallback')
+            headers['Authorization'] = f"Bearer {self._api_key}"
 
             payload = {"prompt": {"text": prompt_text}}
 
-            resp = requests.post(endpoint, json=payload, headers=headers, params=params, timeout=30)
+            resp = requests.post(endpoint, json=payload, headers=headers, timeout=30)
             resp.raise_for_status()
             data = resp.json()
 
@@ -121,7 +122,11 @@ class _GenaiModelWrapper:
 
             return _wrap_response({'text': text})
         except Exception as e:
-            raise RuntimeError(f"No compatible google.genai generate API found and REST fallback failed: {e}")
+            # Mask API key in error messages and logs
+            err_str = str(e)
+            if self._api_key and isinstance(self._api_key, str):
+                err_str = err_str.replace(self._api_key, 'REDACTED_API_KEY')
+            raise RuntimeError(f"No compatible google.genai generate API found and REST fallback failed: {err_str}")
 
 
 def _wrap_response(resp):
