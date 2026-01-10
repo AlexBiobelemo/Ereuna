@@ -6,7 +6,7 @@ import time # Import time for exponential backoff
 import random # Import random for jitter
 from typing import Dict, List, Optional, Any
 
-import google.generativeai as genai # Added for genai.types.BlockedPromptException
+import google.genai as genai # Added for genai.types.BlockedPromptException
 import openai
 import anthropic
 from utils.web_scraper import WebScraper # Import the WebScraper

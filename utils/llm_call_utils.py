@@ -7,7 +7,7 @@ import random
 import logging
 from typing import Dict, Any, Optional
 
-import google.generativeai as genai
+import google.genai as genai
 import openai
 import anthropic
 
@@ -21,6 +21,12 @@ from utils.exceptions import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Backwards-compatible exception references for google.genai
+# Some releases expose different exception class names; fall back to generic Exception when not present.
+_genai_types = getattr(genai, 'types', genai)
+GENAI_BLOCKED_PROMPT_EXCEPTION = getattr(_genai_types, 'BlockedPromptException', Exception)
+GENAI_API_ERROR = getattr(genai, 'APIError', getattr(genai, 'Error', Exception))
 
 
 def make_llm_call_with_retry(
@@ -114,7 +120,7 @@ def make_llm_call_with_retry(
             logger.info(f"Successfully generated {call_type} with {model_name}")
             return response_text
 
-        except (genai.types.BlockedPromptException, openai.APITimeoutError, anthropic.APITimeoutError) as e:
+        except (GENAI_BLOCKED_PROMPT_EXCEPTION, openai.APITimeoutError, anthropic.APITimeoutError) as e:
             logger.error(f"Timeout error for {call_type} with {model_name}: {e}")
             if attempt < max_retries - 1:
                 wait_time = (2 ** attempt) + random.uniform(0, 0.5)
@@ -122,7 +128,7 @@ def make_llm_call_with_retry(
                 time.sleep(wait_time)
             else:
                 raise APITimeoutError(provider=model_prefix, model=model_name, timeout=timeout)
-        except (genai.APIError, openai.APIError, anthropic.APIError) as e:
+        except (GENAI_API_ERROR, openai.APIError, anthropic.APIError) as e:
             error_msg = str(e).lower()
             if "quota" in error_msg or "rate" in error_msg:
                 logger.error(f"API rate limit/quota error for {call_type} with {model_name}: {e}")

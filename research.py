@@ -296,13 +296,18 @@ def app():
                     
                     # Progress callback
                     def progress_callback(progress):
+                        # Prefer completed_volumes for progress if available
+                        completed = progress.get('completed_volumes', progress.get('current_volume', 0))
+                        total = progress.get('total_volumes', 1) or 1
+                        progress_pct = round((completed / total) * 100, 1)
+
                         SessionStateManager.update_hierarchical_progress(
-                            current_volume=progress['current_volume'],
-                            total_volumes=progress['total_volumes'],
-                            volume_title=progress['volume_title']
+                            current_volume=progress.get('current_volume', 0),
+                            total_volumes=progress.get('total_volumes', total),
+                            volume_title=progress.get('volume_title', '')
                         )
-                        st.progress(progress['progress_pct'] / 100)
-                        st.session_state.update_spinner(f"📖 Generating {progress['volume_title']} ({progress['current_volume']}/{progress['total_volumes']})")
+                        st.progress(progress_pct / 100)
+                        st.session_state.update_spinner(f"📖 Generating {progress.get('volume_title', '')} ({progress.get('current_volume', 0)}/{progress.get('total_volumes', total)})")
                     
                     # Generate hierarchical research
                     hierarchical_result = hierarchical_gen.generate(

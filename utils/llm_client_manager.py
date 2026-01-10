@@ -1,7 +1,7 @@
 import logging
 from typing import Dict, Any, Optional
 
-import google.generativeai as genai
+import google.genai as genai
 import openai
 import anthropic
 from anthropic import Anthropic, AsyncAnthropic

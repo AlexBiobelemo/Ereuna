@@ -471,7 +471,7 @@ The primary performance bottlenecks in the `Ereuna` codebase are:
     *   `utils.template_manager.TemplateManager`
     *   `utils.chat_manager.ChatManager`
 *   `Ereuna/utils/research_generator.py` depends on:
-    *   `google.generativeai`, `openai`, `anthropic` (LLM libraries)
+    *   `google.genai`, `openai`, `anthropic` (LLM libraries)
     *   `utils.web_scraper.WebScraper`
     *   `utils.config_manager.ConfigManager`
     *   `utils.prompt_manager.PromptManager`
@@ -482,7 +482,7 @@ The primary performance bottlenecks in the `Ereuna` codebase are:
     *   `markdown`
     *   `bs4.BeautifulSoup`
 *   `Ereuna/utils/chat_manager.py` depends on:
-    *   `google.generativeai`, `openai`, `anthropic` (LLM libraries)
+    *   `google.genai`, `openai`, `anthropic` (LLM libraries)
     *   `utils.web_scraper.WebScraper`
     *   `utils.config_manager.ConfigManager`
     *   `utils.prompt_manager.PromptManager`
@@ -497,7 +497,7 @@ The primary performance bottlenecks in the `Ereuna` codebase are:
 *   `Ereuna/utils/template_manager.py` depends on:
     *   `os`, `json`
 *   `Ereuna/utils/llm_client_manager.py` depends on:
-    *   `google.generativeai`, `openai`, `anthropic` (LLM libraries)
+    *   `google.genai`, `openai`, `anthropic` (LLM libraries)
     *   `utils.config_manager.ConfigManager`
 *   `Ereuna/utils/config_manager.py` depends on:
     *   `toml`
