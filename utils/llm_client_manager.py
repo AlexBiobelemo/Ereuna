@@ -9,6 +9,120 @@ from openai import OpenAI, AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 
+
+# Compatibility adapter for google.genai to provide a minimal
+# `GenerativeModel(...).generate_content(...)` interface expected
+# by the rest of the codebase. This tries multiple call patterns
+# supported by different versions of the library.
+class _GenaiModelWrapper:
+    def __init__(self, module, client_instance, model_name, api_key=None):
+        self._module = module
+        self._client = client_instance
+        self._model_name = model_name
+        self._api_key = api_key
+
+    def generate_content(self, messages):
+        # Flatten messages into a single prompt string
+        parts = []
+        for m in messages:
+            if isinstance(m, dict):
+                if 'parts' in m and isinstance(m['parts'], (list, tuple)):
+                    parts.extend([str(p) for p in m['parts']])
+                elif 'content' in m:
+                    parts.append(str(m['content']))
+            else:
+                parts.append(str(m))
+
+        prompt_text = "\n".join(parts)
+
+        # Try client.generate(...) if available
+        if self._client is not None:
+            gen = getattr(self._client, 'generate', None)
+            if callable(gen):
+                try:
+                    resp = gen(model=self._model_name, prompt=prompt_text)
+                except TypeError:
+                    resp = gen(model=self._model_name, input=prompt_text)
+                return _wrap_response(resp)
+
+        # Try module-level generate(...) function
+        genf = getattr(self._module, 'generate', None)
+        if callable(genf):
+            try:
+                resp = genf(model=self._model_name, prompt=prompt_text, api_key=self._api_key)
+            except TypeError:
+                resp = genf(model=self._model_name, input=prompt_text)
+            return _wrap_response(resp)
+
+        # Try module-level client() factory
+        client_factory = getattr(self._module, 'Client', None) or getattr(getattr(self._module, 'client', None), 'Client', None)
+        if client_factory:
+            try:
+                inst = client_factory(api_key=self._api_key)
+            except TypeError:
+                inst = client_factory()
+            gen = getattr(inst, 'generate', None)
+            if callable(gen):
+                try:
+                    resp = gen(model=self._model_name, prompt=prompt_text)
+                except TypeError:
+                    resp = gen(model=self._model_name, input=prompt_text)
+                return _wrap_response(resp)
+
+        raise RuntimeError('No compatible google.genai generate API found')
+
+
+def _wrap_response(resp):
+    # Normalize different response types into an object with `.text`
+    from types import SimpleNamespace
+
+    if resp is None:
+        return SimpleNamespace(text='')
+
+    # If response is a string
+    if isinstance(resp, str):
+        return SimpleNamespace(text=resp)
+
+    # If response has attribute 'text'
+    text = getattr(resp, 'text', None)
+    if text is not None:
+        return SimpleNamespace(text=text)
+
+    # If response is a dict-like
+    if isinstance(resp, dict):
+        # common places: 'output', 'text', 'content'
+        for key in ('output', 'text', 'content', 'result'):
+            if key in resp:
+                val = resp[key]
+                if isinstance(val, (list, tuple)):
+                    val = ' '.join(str(v) for v in val)
+                return SimpleNamespace(text=str(val))
+
+    # Fallback to string conversion
+    return SimpleNamespace(text=str(resp))
+
+
+class _GenaiAdapter:
+    """Adapter exposing a `GenerativeModel(name)` factory compatible with older code."""
+    def __init__(self, module, api_key=None):
+        self._module = module
+        self._api_key = api_key
+
+        # Try to instantiate a client if available
+        ClientClass = getattr(module, 'Client', None) or getattr(getattr(module, 'client', None), 'Client', None)
+        self._client_instance = None
+        if ClientClass:
+            try:
+                self._client_instance = ClientClass(api_key=api_key)
+            except TypeError:
+                try:
+                    self._client_instance = ClientClass()
+                except Exception:
+                    self._client_instance = None
+
+    def GenerativeModel(self, model_name: str):
+        return _GenaiModelWrapper(self._module, self._client_instance, model_name, api_key=self._api_key)
+
 class LLMClientManager:
     """
     Manages the initialization and configuration of various LLM API clients.
@@ -55,11 +169,25 @@ class LLMClientManager:
 
         try:
             if model_prefix == 'gemini':
-                genai.configure(api_key=api_key)
-                self.clients['gemini'] = genai
-                if self.spinner_update_callback:
-                    self.spinner_update_callback("Successfully configured Gemini API")
-                logger.info("Successfully configured Gemini API")
+                # Prefer configuring if available (older API)
+                if hasattr(genai, 'configure') and callable(getattr(genai, 'configure')):
+                    try:
+                        genai.configure(api_key=api_key)
+                        self.clients['gemini'] = genai
+                        if self.spinner_update_callback:
+                            self.spinner_update_callback("Successfully configured Gemini API using genai.configure()")
+                        logger.info("Successfully configured Gemini API using genai.configure()")
+                    except Exception as e:
+                        logger.warning(f"genai.configure failed: {e}. Falling back to adapter.")
+                        adapter = _GenaiAdapter(genai, api_key)
+                        self.clients['gemini'] = adapter
+                else:
+                    # Newer google.genai versions may expose a Client class or module-level generate()
+                    adapter = _GenaiAdapter(genai, api_key)
+                    self.clients['gemini'] = adapter
+                    if self.spinner_update_callback:
+                        self.spinner_update_callback("Configured Gemini API using compatibility adapter")
+                    logger.info("Configured Gemini API using compatibility adapter")
             elif model_prefix == 'gpt':
                 self.clients['gpt'] = AsyncOpenAI(api_key=api_key)
                 if self.spinner_update_callback:
