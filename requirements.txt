@@ -12,3 +12,4 @@ beautifulsoup4>=4.12.2
 textstat>=0.7.0
 googlesearch-python>=1.2.0
 markdown>=3.4.4
+aiohttp
