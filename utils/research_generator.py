@@ -1,5 +1,5 @@
 import streamlit as st
-import google.genai as genai
+import google.generativeai as genai
 import logging
 import time
 from typing import Dict, Optional, List, Any
@@ -449,4 +449,3 @@ class ResearchGenerator:
                 self.spinner_update_callback(f"Unexpected error in generate_summary: {e}")
             logger.error(f"Unexpected error in generate_summary: {e}")
             return f"Error generating executive summary: {str(e)}"
-

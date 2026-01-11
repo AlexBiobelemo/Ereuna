@@ -141,7 +141,7 @@ streamlit run research.py
 
 ```txt
 streamlit>=1.28.0
-google-genai>=0.3.0
+google-generativeai>=0.3.0
 python-docx>=0.8.11
 fpdf2>=2.7.6
 python-pptx>=0.6.21

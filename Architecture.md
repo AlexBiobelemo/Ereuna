@@ -535,7 +535,7 @@ async def scrape_text_from_url(self, url: str) -> Optional[str]:
 | Library             | Version | Purpose             |
 | ------------------- | ------- | ------------------- |
 | streamlit           | ≥1.28.0 | UI framework        |
-| google-genai | ≥0.3.0  | Gemini API          |
+| google-generativeai | ≥0.3.0  | Gemini API          |
 | openai              | ≥1.0.0  | OpenAI API          |
 | anthropic           | ≥0.3.0  | Anthropic API       |
 | python-docx         | ≥0.8.11 | DOCX generation     |

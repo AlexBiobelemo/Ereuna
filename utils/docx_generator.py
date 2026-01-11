@@ -61,14 +61,23 @@ class DocxGenerator:
                 elif element.name == 'p':
                     p = document.add_paragraph()
                     self._apply_inline_styles(p, element)
+                    # Remove any line numbers that might be in the text
+                    if p.text and p.text.startswith('1. '):
+                        p.text = p.text[3:]  # Remove "1. " prefix
                 elif element.name == 'ul':
                     for li in element.find_all('li'):
                         p = document.add_paragraph(style='List Bullet')
                         self._apply_inline_styles(p, li)
+                        # Remove any line numbers from list items
+                        if p.text and p.text.startswith('1. '):
+                            p.text = p.text[3:]
                 elif element.name == 'ol':
                     for i, li in enumerate(element.find_all('li')):
                         p = document.add_paragraph(style='List Number')
                         self._apply_inline_styles(p, li)
+                        # Remove any line numbers from list items
+                        if p.text and p.text.startswith('1. '):
+                            p.text = p.text[3:]
                 elif element.name == 'blockquote':
                     p = document.add_paragraph(style='Intense Quote')
                     self._apply_inline_styles(p, element)
@@ -92,15 +101,95 @@ class DocxGenerator:
                     pass
                 else:
                     if element.get_text(strip=True):
-                        document.add_paragraph(element.get_text())
+                        text = element.get_text()
+                        # Remove any line numbers from plain text
+                        if text.startswith('1. '):
+                            text = text[3:]
+                        document.add_paragraph(text)
             elif element_type == 'text':
-                document.add_paragraph(element)
+                text = element
+                # Remove any line numbers from plain text
+                if text.startswith('1. '):
+                    text = text[3:]
+                document.add_paragraph(text)
+    
+    def _add_markdown_content_no_headings(self, document, markdown_text):
+        """
+        Parses markdown text and adds it to the document with enhanced styling,
+        but skips heading processing to avoid duplication.
+        Uses streaming approach for memory efficiency with large documents.
+        """
+        table_count = 0
+        
+        for element_type, element in self._stream_markdown_content(markdown_text):
+            if element_type == 'tag' and element.name:
+                # Skip heading elements to avoid duplication
+                if element.name.startswith('h') and len(element.name) >= 2:
+                    continue
+                elif element.name == 'p':
+                    p = document.add_paragraph()
+                    self._apply_inline_styles(p, element)
+                    # Remove any line numbers that might be in the text
+                    if p.text and p.text.startswith('1. '):
+                        p.text = p.text[3:]  # Remove "1. " prefix
+                elif element.name == 'ul':
+                    for li in element.find_all('li'):
+                        p = document.add_paragraph(style='List Bullet')
+                        self._apply_inline_styles(p, li)
+                        # Remove any line numbers from list items
+                        if p.text and p.text.startswith('1. '):
+                            p.text = p.text[3:]
+                elif element.name == 'ol':
+                    for i, li in enumerate(element.find_all('li')):
+                        p = document.add_paragraph(style='List Number')
+                        self._apply_inline_styles(p, li)
+                        # Remove any line numbers from list items
+                        if p.text and p.text.startswith('1. '):
+                            p.text = p.text[3:]
+                elif element.name == 'blockquote':
+                    p = document.add_paragraph(style='Intense Quote')
+                    self._apply_inline_styles(p, element)
+                elif element.name == 'pre':
+                    code_text = element.get_text()
+                    p = document.add_paragraph(code_text)
+                    for run in p.runs:
+                        run.font.name = CODE_FONT_NAME
+                        run.font.size = CODE_FONT_SIZE
+                elif element.name == 'hr':
+                    document.add_paragraph("---", style='Normal')
+                elif element.name == 'table':
+                    # Process table with batched row handling for memory efficiency
+                    table_count += 1
+                    self._add_html_table_to_docx(document, element, batch_size=self.batch_size)
+                elif element.name == 'img':
+                    img_src = element.get('src', 'No source')
+                    img_alt = element.get('alt', 'Image')
+                    document.add_paragraph(f"[[Image: {img_alt} - {img_src}]]", style='Normal')
+                elif element.name == 'a':
+                    pass
+                else:
+                    if element.get_text(strip=True):
+                        text = element.get_text()
+                        # Remove any line numbers from plain text
+                        if text.startswith('1. '):
+                            text = text[3:]
+                        document.add_paragraph(text)
+            elif element_type == 'text':
+                text = element
+                # Remove any line numbers from plain text
+                if text.startswith('1. '):
+                    text = text[3:]
+                document.add_paragraph(text)
 
     def _apply_inline_styles(self, paragraph: Paragraph, soup_element: Any):
         """
         Applies inline styles (bold, italic, inline code, hyperlinks) to a paragraph
         based on the parsed BeautifulSoup element's contents.
         """
+        # Set default paragraph formatting for better appearance
+        paragraph.paragraph_format.space_after = Pt(6)
+        paragraph.paragraph_format.line_spacing = 1.15
+        
         for content in soup_element.contents:
             if content.name == 'strong':
                 run = paragraph.add_run(content.get_text())

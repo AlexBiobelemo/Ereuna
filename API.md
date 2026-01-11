@@ -88,7 +88,7 @@ client = manager.get_client("claude-3-opus-20240229")
 
 | Prefix   | Provider      | Client Type                  |
 | -------- | ------------- | ---------------------------- |
-| `gemini` | Google Gemini | `google.genai` module |
+| `gemini` | Google Gemini | `google.generativeai` module |
 | `gpt`    | OpenAI        | `AsyncOpenAI`                |
 | `claude` | Anthropic     | `AsyncAnthropic`             |
 

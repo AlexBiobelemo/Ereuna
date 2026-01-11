@@ -93,10 +93,16 @@ def app():
         )
         
         # Apply template keywords if available
-        default_keywords = SessionStateManager.get_value('current_keywords', 
+        default_keywords = SessionStateManager.get_value('current_keywords',
                   'Artificial Intelligence, Learning, Teaching, Future of Education')
         if current_template and current_template.get("keywords_suffix"):
             default_keywords = f"{default_keywords}, {current_template['keywords_suffix']}"
+
+        # Apply template research questions if available
+        default_questions = SessionStateManager.get_value('current_questions',
+                  'How does AI personalize learning?, What are the ethical implications of AI in education?')
+        if current_template and current_template.get("questions_prefix"):
+            default_questions = f"{current_template['questions_prefix']}, {default_questions}"
 
         keywords_input = st.text_input(
             "Enter keywords (comma-separated):",
@@ -105,12 +111,6 @@ def app():
         )
     
     with col2:
-        # Apply template research questions if available
-        default_questions = SessionStateManager.get_value('current_questions',
-                  'How does AI personalize learning?, What are the ethical implications of AI in education?')
-        if current_template and current_template.get("questions_prefix"):
-            default_questions = f"{current_template['questions_prefix']}, {default_questions}"
-
         research_questions_input = st.text_area(
             "Enter research questions (comma-separated):",
             value=default_questions,
@@ -197,12 +197,77 @@ def app():
     if selected_template_name == "Custom Template":
         st.markdown("---")
         st.subheader("Custom Template Configuration")
-        custom_sections_input = st.text_area(
-            "Define your custom sections (one per line or comma-separated):",
-            value=SessionStateManager.get_value('custom_sections_input', "Introduction\nBackground\nMethodology\nFindings\nConclusion"),
-            height=150,
-            help="Enter the titles for your desired report sections. Each line or comma-separated value will be a new section."
+        
+        # Auto-generate sections based on topic
+        auto_generate_sections = st.checkbox(
+            "Auto-generate sections based on research topic",
+            value=SessionStateManager.get_value('auto_generate_sections', False),
+            help="Let AI suggest appropriate sections for your research topic"
         )
+        SessionStateManager.set_value('auto_generate_sections', auto_generate_sections)
+        
+        if auto_generate_sections and topic and topic != "Impact of AI on Education":
+            try:
+                # Use research generator to suggest sections
+                config_manager = ConfigManager()
+                prompt_manager = PromptManager()
+                research_gen = ResearchGenerator(
+                    topic=topic,
+                    keywords=keywords,
+                    research_questions=research_questions,
+                    config_manager=config_manager,
+                    prompt_manager=prompt_manager,
+                    model_name=selected_model_name
+                )
+                
+                # Generate suggested sections
+                section_prompt = f"""Suggest 5-8 appropriate research report sections for the topic: {topic}.
+                Return only the section titles, one per line, without any numbering or explanations.
+                Focus on sections that would be most relevant for a comprehensive research report on this topic."""
+                
+                suggested_sections = research_gen._make_api_call_with_retry(section_prompt, "section suggestions")
+                
+                if not suggested_sections.startswith("Error"):
+                    # Parse the suggested sections
+                    suggested_list = [line.strip() for line in suggested_sections.split('\n') if line.strip() and not line.strip().startswith(('Error', 'Warning'))]
+                    if len(suggested_list) >= 3:  # Only use if we got reasonable suggestions
+                        auto_sections_text = '\n'.join(suggested_list)
+                        custom_sections_input = st.text_area(
+                            "Define your custom sections (one per line or comma-separated):",
+                            value=auto_sections_text,
+                            height=150,
+                            help="AI-suggested sections are shown below. You can edit them as needed."
+                        )
+                    else:
+                        custom_sections_input = st.text_area(
+                            "Define your custom sections (one per line or comma-separated):",
+                            value=SessionStateManager.get_value('custom_sections_input', "Introduction\nBackground\nMethodology\nFindings\nConclusion"),
+                            height=150,
+                            help="Enter the titles for your desired report sections. Each line or comma-separated value will be a new section."
+                        )
+                else:
+                    custom_sections_input = st.text_area(
+                        "Define your custom sections (one per line or comma-separated):",
+                        value=SessionStateManager.get_value('custom_sections_input', "Introduction\nBackground\nMethodology\nFindings\nConclusion"),
+                        height=150,
+                        help="Enter the titles for your desired report sections. Each line or comma-separated value will be a new section."
+                    )
+            except Exception as e:
+                st.warning(f"Could not auto-generate sections: {e}")
+                custom_sections_input = st.text_area(
+                    "Define your custom sections (one per line or comma-separated):",
+                    value=SessionStateManager.get_value('custom_sections_input', "Introduction\nBackground\nMethodology\nFindings\nConclusion"),
+                    height=150,
+                    help="Enter the titles for your desired report sections. Each line or comma-separated value will be a new section."
+                )
+        else:
+            custom_sections_input = st.text_area(
+                "Define your custom sections (one per line or comma-separated):",
+                value=SessionStateManager.get_value('custom_sections_input', "Introduction\nBackground\nMethodology\nFindings\nConclusion"),
+                height=150,
+                help="Enter the titles for your desired report sections. Each line or comma-separated value will be a new section."
+            )
+        
         SessionStateManager.set_value('custom_sections_input', custom_sections_input)
         
         if custom_sections_input:
@@ -296,18 +361,15 @@ def app():
                     
                     # Progress callback
                     def progress_callback(progress):
-                        # Prefer completed_volumes for progress if available
-                        completed = progress.get('completed_volumes', progress.get('current_volume', 0))
-                        total = progress.get('total_volumes', 1) or 1
-                        progress_pct = round((completed / total) * 100, 1)
-
                         SessionStateManager.update_hierarchical_progress(
-                            current_volume=progress.get('current_volume', 0),
-                            total_volumes=progress.get('total_volumes', total),
-                            volume_title=progress.get('volume_title', '')
+                            current_volume=progress['current_volume'],
+                            total_volumes=progress['total_volumes'],
+                            volume_title=progress['volume_title']
                         )
+                        # Calculate progress percentage
+                        progress_pct = (progress['completed_volumes'] / progress['total_volumes']) * 100
                         st.progress(progress_pct / 100)
-                        st.session_state.update_spinner(f"📖 Generating {progress.get('volume_title', '')} ({progress.get('current_volume', 0)}/{progress.get('total_volumes', total)})")
+                        st.session_state.update_spinner(f"📖 Generating {progress['volume_title']} ({progress['current_volume']}/{progress['total_volumes']})")
                     
                     # Generate hierarchical research
                     hierarchical_result = hierarchical_gen.generate(
@@ -361,10 +423,10 @@ def app():
                         section_title = ""
                         if isinstance(section_data, dict) and "title" in section_data:
                             section_title = section_data["title"]
-                            generated_content = research_gen.generate_section(section_data, previous_sections_content=all_previous_content)
+                            generated_content = research_gen.generate_section(section_data, previous_sections_content=all_previous_content, spinner_update_callback=st.session_state.update_spinner)
                         elif isinstance(section_data, str):
                             section_title = section_data
-                            generated_content = research_gen.generate_section(section_data, previous_sections_content=all_previous_content)
+                            generated_content = research_gen.generate_section(section_data, previous_sections_content=all_previous_content, spinner_update_callback=st.session_state.update_spinner)
                         else:
                             logging.warning(f"Skipping invalid section data in template: {section_data}")
                             continue # Skip to next section
@@ -494,245 +556,245 @@ def app():
                             st.markdown(f"- {metric.replace('_', ' ').title()}: `{value:.2f}`")
                     st.markdown("---")
 
-        # --- Export Options ---
-        st.divider()
-        st.subheader("📥 Export Options")
+    # --- Export Options ---
+    st.divider()
+    st.subheader("📥 Export Options")
+    
+    col1, col2 = st.columns(2)
+    
+    # --- Notes/Text Export ---
+    with col1:
+        st.markdown("### 📝 Text Notes")
+        # Download Text File
+        notes_content = SessionStateManager.get_notes()
+        if notes_content:
+            topic = SessionStateManager.get_value('current_topic', 'research_notes')
+            st.download_button(
+                label="📥 Download Text File",
+                data=notes_content.encode('utf-8'),
+                file_name=f"{topic.replace(' ', '_')}_research_notes.txt",
+                mime="text/plain",
+                key="download_txt_btn",
+                use_container_width=True
+            )
+
+        # Live Notes Editor
+        st.markdown("### 📝 Live Notes Editor")
+        current_notes_content = SessionStateManager.get_notes()
+        edited_notes = st.text_area(
+            "Live Notes Editor",
+            value=current_notes_content,
+            height=300,
+            key="live_notes_editor",
+            on_change=lambda: SessionStateManager.store_notes(st.session_state.live_notes_editor)
+        )
+        # Ensure session state is updated if text area is edited
+        if edited_notes != current_notes_content:
+            SessionStateManager.store_notes(edited_notes)
+    
+    # --- DOCX Generation ---
+    with col2:
+        st.markdown("### 📄 DOCX Report")
+        if st.button("Generate DOCX", key="gen_docx_btn", use_container_width=True):
+            try:
+                with st.spinner("📄 Finalizing DOCX report..."):
+                    topic = SessionStateManager.get_value('current_topic')
+                    sections_content = SessionStateManager.get_value('research_sections', {})
+                    
+                    docx_output_path = f"{topic.replace(' ', '_')}_research_report.docx"
+                    
+                    docx_gen = DocxGenerator(topic=topic)
+                    docx_gen.generate_docx_report(sections_content, docx_output_path)
+                    
+                    # CRITICAL: Read file and store in session state
+                    with open(docx_output_path, "rb") as f:
+                        docx_bytes = f.read()
+                    
+                    SessionStateManager.store_file_data('docx', docx_output_path, docx_bytes)
+                    st.success("✅ DOCX report generated!")
+            except Exception as e:
+                st.error(f"❌ DOCX generation failed: {str(e)}")
+                logging.error(f"DOCX generation error: {e}")
         
-        col1, col2 = st.columns(2)
-        
-        # --- Notes/Text Export ---
-        with col1:
-            st.markdown("### 📝 Text Notes")
-            # Download Text File
-            notes_content = SessionStateManager.get_notes()
-            if notes_content:
-                topic = SessionStateManager.get_value('current_topic', 'research_notes')
+        # Show download button if DOCX exists in session state
+        if SessionStateManager.is_file_generated('docx'):
+            docx_bytes = SessionStateManager.get_file_bytes('docx')
+            if docx_bytes:
+                topic = SessionStateManager.get_value('current_topic')
                 st.download_button(
-                    label="📥 Download Text File",
-                    data=notes_content.encode('utf-8'),
-                    file_name=f"{topic.replace(' ', '_')}_research_notes.txt",
-                    mime="text/plain",
-                    key="download_txt_btn",
+                    label="📥 Download DOCX Report",
+                    data=docx_bytes,
+                    file_name=f"{topic.replace(' ', '_')}_research_report.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    key="download_docx_btn",
                     use_container_width=True
                 )
 
-            # Live Notes Editor
-            st.markdown("### 📝 Live Notes Editor")
-            current_notes_content = SessionStateManager.get_notes()
-            edited_notes = st.text_area(
-                "Live Notes Editor",
-                value=current_notes_content,
-                height=300,
-                key="live_notes_editor",
-                on_change=lambda: SessionStateManager.store_notes(st.session_state.live_notes_editor)
-            )
-            # Ensure session state is updated if text area is edited
-            if edited_notes != current_notes_content:
-                SessionStateManager.store_notes(edited_notes)
+    # --- Modular Export for Hierarchical Generation ---
+    if SessionStateManager.is_hierarchical_generation_enabled() and SessionStateManager.is_hierarchical_generation_complete():
+        st.divider()
+        st.subheader("📦 Modular Export Options")
         
-        # --- DOCX Generation ---
-        with col2:
-            st.markdown("### 📄 DOCX Report")
-            if st.button("Generate DOCX", key="gen_docx_btn", use_container_width=True):
+        st.info("Export your large research document as multiple volumes or a complete master document.")
+        
+        col_exp1, col_exp2, col_exp3 = st.columns(3)
+        
+        with col_exp1:
+            if st.button("📄 Export Individual Volumes", use_container_width=True):
                 try:
-                    with st.spinner("📄 Finalizing DOCX report..."):
-                        topic = SessionStateManager.get_value('current_topic')
-                        sections_content = SessionStateManager.get_value('research_sections', {})
+                    with st.spinner("Exporting individual volumes..."):
+                        volume_contents = SessionStateManager.get_volume_contents()
                         
-                        docx_output_path = f"{topic.replace(' ', '_')}_research_report.docx"
+                        # Create exporter
+                        exporter = create_modular_exporter(
+                            topic=topic,
+                            output_dir="exports",
+                            include_toc=True,
+                            include_cover_page=True,
+                            cross_reference_volumes=True
+                        )
                         
-                        docx_gen = DocxGenerator(topic=topic)
-                        docx_gen.generate_docx_report(sections_content, docx_output_path)
+                        # Get volume titles
+                        volume_plans = SessionStateManager.get_volume_plans()
+                        volume_titles = {}
+                        for vol_plan in volume_plans:
+                            volume_titles[vol_plan.get('volume_number', 0)] = vol_plan.get('volume_title', f"Volume {vol_plan.get('volume_number', 0)}")
                         
-                        # CRITICAL: Read file and store in session state
-                        with open(docx_output_path, "rb") as f:
-                            docx_bytes = f.read()
+                        # Export all volumes
+                        exported = exporter.export_all_volumes(volume_contents, volume_titles)
                         
-                        SessionStateManager.store_file_data('docx', docx_output_path, docx_bytes)
-                        st.success("✅ DOCX report generated!")
+                        # Store manifest
+                        summary = exporter.get_export_summary()
+                        SessionStateManager.store_modular_exports(summary, exporter.master_doc_path)
+                        
+                        st.success(f"✅ Exported {len(exported)} volumes!")
+                        
+                        # Show summary
+                        with st.expander("Export Summary"):
+                            st.write(f"Total Volumes: {summary['total_volumes']}")
+                            st.write(f"Total Pages: {summary['total_estimated_pages']}")
+                            st.write(f"Total Size: {summary['total_file_size_mb']} MB")
+                            
+                            for vol in summary['volumes']:
+                                st.write(f"- Volume {vol['volume_number']}: {vol['file_path']} ({vol['pages']} pages)")
                 except Exception as e:
-                    st.error(f"❌ DOCX generation failed: {str(e)}")
-                    logging.error(f"DOCX generation error: {e}")
-            
-            # Show download button if DOCX exists in session state
-            if SessionStateManager.is_file_generated('docx'):
-                docx_bytes = SessionStateManager.get_file_bytes('docx')
-                if docx_bytes:
-                    topic = SessionStateManager.get_value('current_topic')
-                    st.download_button(
-                        label="📥 Download DOCX Report",
-                        data=docx_bytes,
-                        file_name=f"{topic.replace(' ', '_')}_research_report.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        key="download_docx_btn",
-                        use_container_width=True
-                    )
-
-        # --- Modular Export for Hierarchical Generation ---
-        if SessionStateManager.is_hierarchical_generation_enabled() and SessionStateManager.is_hierarchical_generation_complete():
-            st.divider()
-            st.subheader("📦 Modular Export Options")
-            
-            st.info("Export your large research document as multiple volumes or a complete master document.")
-            
-            col_exp1, col_exp2, col_exp3 = st.columns(3)
-            
-            with col_exp1:
-                if st.button("📄 Export Individual Volumes", use_container_width=True):
-                    try:
-                        with st.spinner("Exporting individual volumes..."):
-                            volume_contents = SessionStateManager.get_volume_contents()
-                            
-                            # Create exporter
-                            exporter = create_modular_exporter(
-                                topic=topic,
-                                output_dir="exports",
-                                include_toc=True,
-                                include_cover_page=True,
-                                cross_reference_volumes=True
-                            )
-                            
-                            # Get volume titles
-                            volume_plans = SessionStateManager.get_volume_plans()
-                            volume_titles = {}
-                            for vol_plan in volume_plans:
-                                volume_titles[vol_plan.get('volume_number', 0)] = vol_plan.get('volume_title', f"Volume {vol_plan.get('volume_number', 0)}")
-                            
-                            # Export all volumes
-                            exported = exporter.export_all_volumes(volume_contents, volume_titles)
-                            
-                            # Store manifest
-                            summary = exporter.get_export_summary()
-                            SessionStateManager.store_modular_exports(summary, exporter.master_doc_path)
-                            
-                            st.success(f"✅ Exported {len(exported)} volumes!")
-                            
-                            # Show summary
-                            with st.expander("Export Summary"):
-                                st.write(f"Total Volumes: {summary['total_volumes']}")
-                                st.write(f"Total Pages: {summary['total_estimated_pages']}")
-                                st.write(f"Total Size: {summary['total_file_size_mb']} MB")
-                                
-                                for vol in summary['volumes']:
-                                    st.write(f"- Volume {vol['volume_number']}: {vol['file_path']} ({vol['pages']} pages)")
-                    except Exception as e:
-                        st.error(f"❌ Export failed: {str(e)}")
-                        logging.error(f"Modular export error: {e}")
-            
-            with col_exp2:
-                if st.button("📚 Generate Master Document", use_container_width=True):
-                    try:
-                        with st.spinner("Generating master document..."):
-                            volume_contents = SessionStateManager.get_volume_contents()
-                            
-                            # Create exporter
-                            exporter = create_modular_exporter(
-                                topic=topic,
-                                output_dir="exports",
-                                include_toc=True,
-                                include_cover_page=True,
-                                cross_reference_volumes=True
-                            )
-                            
-                            # Get volume titles
-                            volume_plans = SessionStateManager.get_volume_plans()
-                            volume_titles = {}
-                            for vol_plan in volume_plans:
-                                volume_titles[vol_plan.get('volume_number', 0)] = vol_plan.get('volume_title', f"Volume {vol_plan.get('volume_number', 0)}")
-                            
-                            # Get master outline
-                            master_outline = SessionStateManager.get_master_outline()
-                            
-                            # Create master document
-                            master_path = exporter.create_master_document(
-                                volume_contents,
-                                volume_titles,
-                                master_outline
-                            )
-                            
-                            # Store manifest
-                            summary = exporter.get_export_summary()
-                            SessionStateManager.store_modular_exports(summary, master_path)
-                            
-                            st.success(f"✅ Master document created: {master_path}")
-                            
-                            # Provide download link
-                            if os.path.exists(master_path):
-                                with open(master_path, "rb") as f:
-                                    master_bytes = f.read()
-                                st.download_button(
-                                    label="📥 Download Master Document",
-                                    data=master_bytes,
-                                    file_name=os.path.basename(master_path),
-                                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                                )
-                    except Exception as e:
-                        st.error(f"❌ Master document generation failed: {str(e)}")
-                        logging.error(f"Master document error: {e}")
-            
-            with col_exp3:
-                if st.button("📦 Create ZIP Archive", use_container_width=True):
-                    try:
-                        with st.spinner("Creating ZIP archive..."):
-                            volume_contents = SessionStateManager.get_volume_contents()
-                            
-                            # Create exporter
-                            exporter = create_modular_exporter(
-                                topic=topic,
-                                output_dir="exports",
-                                include_toc=True,
-                                include_cover_page=True,
-                                cross_reference_volumes=True
-                            )
-                            
-                            # Export all volumes and master document
-                            volume_plans = SessionStateManager.get_volume_plans()
-                            volume_titles = {}
-                            for vol_plan in volume_plans:
-                                volume_titles[vol_plan.get('volume_number', 0)] = vol_plan.get('volume_title', f"Volume {vol_plan.get('volume_number', 0)}")
-                            
-                            exporter.export_all_volumes(volume_contents, volume_titles)
-                            exporter.create_master_document(volume_contents, volume_titles, SessionStateManager.get_master_outline())
-                            
-                            # Create ZIP
-                            zip_path = exporter.create_zip_archive()
-                            
-                            st.success(f"✅ ZIP archive created: {zip_path}")
-                            
-                            # Provide download link
-                            if os.path.exists(zip_path):
-                                with open(zip_path, "rb") as f:
-                                    zip_bytes = f.read()
-                                st.download_button(
-                                    label="📥 Download ZIP Archive",
-                                    data=zip_bytes,
-                                    file_name=os.path.basename(zip_path),
-                                    mime="application/zip"
-                                )
-                    except Exception as e:
-                        st.error(f"❌ ZIP creation failed: {str(e)}")
-                        logging.error(f"ZIP creation error: {e}")
-            
-            # Show download links for individual volumes
-            export_manifest = SessionStateManager.get_export_manifest()
-            if export_manifest and export_manifest.get('volumes'):
-                with st.expander("📥 Download Individual Volumes"):
-                    for vol in export_manifest['volumes']:
-                        file_path = vol['file_path']
-                        if os.path.exists(file_path):
-                            with open(file_path, "rb") as f:
-                                vol_bytes = f.read()
+                    st.error(f"❌ Export failed: {str(e)}")
+                    logging.error(f"Modular export error: {e}")
+        
+        with col_exp2:
+            if st.button("📚 Generate Master Document", use_container_width=True):
+                try:
+                    with st.spinner("Generating master document..."):
+                        volume_contents = SessionStateManager.get_volume_contents()
+                        
+                        # Create exporter
+                        exporter = create_modular_exporter(
+                            topic=topic,
+                            output_dir="exports",
+                            include_toc=True,
+                            include_cover_page=True,
+                            cross_reference_volumes=True
+                        )
+                        
+                        # Get volume titles
+                        volume_plans = SessionStateManager.get_volume_plans()
+                        volume_titles = {}
+                        for vol_plan in volume_plans:
+                            volume_titles[vol_plan.get('volume_number', 0)] = vol_plan.get('volume_title', f"Volume {vol_plan.get('volume_number', 0)}")
+                        
+                        # Get master outline
+                        master_outline = SessionStateManager.get_master_outline()
+                        
+                        # Create master document
+                        master_path = exporter.create_master_document(
+                            volume_contents,
+                            volume_titles,
+                            master_outline
+                        )
+                        
+                        # Store manifest
+                        summary = exporter.get_export_summary()
+                        SessionStateManager.store_modular_exports(summary, master_path)
+                        
+                        st.success(f"✅ Master document created: {master_path}")
+                        
+                        # Provide download link
+                        if os.path.exists(master_path):
+                            with open(master_path, "rb") as f:
+                                master_bytes = f.read()
                             st.download_button(
-                                label=f"📄 Volume {vol['volume_number']}: {vol['volume_title']} ({vol['pages']} pages)",
-                                data=vol_bytes,
-                                file_name=os.path.basename(file_path),
+                                label="📥 Download Master Document",
+                                data=master_bytes,
+                                file_name=os.path.basename(master_path),
                                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                             )
-        # Success message
-        if (SessionStateManager.is_file_generated('docx') or
-            SessionStateManager.is_file_generated('txt') or
-            SessionStateManager.is_hierarchical_generation_complete()):
-            st.balloons()
+                except Exception as e:
+                    st.error(f"❌ Master document generation failed: {str(e)}")
+                    logging.error(f"Master document error: {e}")
+        
+        with col_exp3:
+            if st.button("📦 Create ZIP Archive", use_container_width=True):
+                try:
+                    with st.spinner("Creating ZIP archive..."):
+                        volume_contents = SessionStateManager.get_volume_contents()
+                        
+                        # Create exporter
+                        exporter = create_modular_exporter(
+                            topic=topic,
+                            output_dir="exports",
+                            include_toc=True,
+                            include_cover_page=True,
+                            cross_reference_volumes=True
+                        )
+                        
+                        # Export all volumes and master document
+                        volume_plans = SessionStateManager.get_volume_plans()
+                        volume_titles = {}
+                        for vol_plan in volume_plans:
+                            volume_titles[vol_plan.get('volume_number', 0)] = vol_plan.get('volume_title', f"Volume {vol_plan.get('volume_number', 0)}")
+                        
+                        exporter.export_all_volumes(volume_contents, volume_titles)
+                        exporter.create_master_document(volume_contents, volume_titles, SessionStateManager.get_master_outline())
+                        
+                        # Create ZIP
+                        zip_path = exporter.create_zip_archive()
+                        
+                        st.success(f"✅ ZIP archive created: {zip_path}")
+                        
+                        # Provide download link
+                        if os.path.exists(zip_path):
+                            with open(zip_path, "rb") as f:
+                                zip_bytes = f.read()
+                            st.download_button(
+                                label="📥 Download ZIP Archive",
+                                data=zip_bytes,
+                                file_name=os.path.basename(zip_path),
+                                mime="application/zip"
+                            )
+                except Exception as e:
+                    st.error(f"❌ ZIP creation failed: {str(e)}")
+                    logging.error(f"ZIP creation error: {e}")
+        
+        # Show download links for individual volumes
+        export_manifest = SessionStateManager.get_export_manifest()
+        if export_manifest and export_manifest.get('volumes'):
+            with st.expander("📥 Download Individual Volumes"):
+                for vol in export_manifest['volumes']:
+                    file_path = vol['file_path']
+                    if os.path.exists(file_path):
+                        with open(file_path, "rb") as f:
+                            vol_bytes = f.read()
+                        st.download_button(
+                            label=f"📄 Volume {vol['volume_number']}: {vol['volume_title']} ({vol['pages']} pages)",
+                            data=vol_bytes,
+                            file_name=os.path.basename(file_path),
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        )
+    # Success message
+    if (SessionStateManager.is_file_generated('docx') or
+        SessionStateManager.is_file_generated('txt') or
+        SessionStateManager.is_hierarchical_generation_complete()):
+        st.balloons()
 
     # --- Chat Interface ---
     st.divider()

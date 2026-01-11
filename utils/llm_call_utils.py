@@ -7,7 +7,7 @@ import random
 import logging
 from typing import Dict, Any, Optional
 
-import google.genai as genai
+import google.generativeai as genai
 import openai
 import anthropic
 
@@ -21,21 +21,6 @@ from utils.exceptions import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Backwards-compatible exception references for google.genai
-# Some releases expose different exception class names; fall back to generic Exception when not present.
-_genai_types = getattr(genai, 'types', genai)
-
-# Create narrow fallback exception classes so we don't accidentally
-# catch unrelated exceptions (which would hide real errors).
-class _NoGenaiBlockedPrompt(Exception):
-    pass
-
-class _NoGenaiAPIError(Exception):
-    pass
-
-GENAI_BLOCKED_PROMPT_EXCEPTION = getattr(_genai_types, 'BlockedPromptException', _NoGenaiBlockedPrompt)
-GENAI_API_ERROR = getattr(genai, 'APIError', getattr(genai, 'Error', _NoGenaiAPIError))
 
 
 def make_llm_call_with_retry(
@@ -129,7 +114,7 @@ def make_llm_call_with_retry(
             logger.info(f"Successfully generated {call_type} with {model_name}")
             return response_text
 
-        except (GENAI_BLOCKED_PROMPT_EXCEPTION, openai.APITimeoutError, anthropic.APITimeoutError) as e:
+        except (genai.types.BlockedPromptException, openai.APITimeoutError, anthropic.APITimeoutError) as e:
             logger.error(f"Timeout error for {call_type} with {model_name}: {e}")
             if attempt < max_retries - 1:
                 wait_time = (2 ** attempt) + random.uniform(0, 0.5)
@@ -137,9 +122,40 @@ def make_llm_call_with_retry(
                 time.sleep(wait_time)
             else:
                 raise APITimeoutError(provider=model_prefix, model=model_name, timeout=timeout)
-        except (GENAI_API_ERROR, openai.APIError, anthropic.APIError) as e:
+        except (openai.APIError, anthropic.APIError) as e:
+            # Handle OpenAI and Anthropic API errors
             error_msg = str(e).lower()
-            if "quota" in error_msg or "rate" in error_msg:
+            if "quota" in error_msg or "rate" in error_msg or "limit" in error_msg:
+                logger.error(f"API rate limit/quota error for {call_type} with {model_name}: {e}")
+                if attempt < max_retries - 1:
+                    wait_time = (2 ** attempt) * 2 + random.uniform(0, 0.5)
+                    logger.info(f"Rate limit hit. Waiting {wait_time:.2f} seconds before retry...")
+                    time.sleep(wait_time)
+                else:
+                    raise APIRateLimitError(provider=model_prefix, model=model_name)
+            elif "api key" in error_msg or "authentication" in error_msg:
+                logger.error(f"API key error for {call_type} with {model_name}: {e}")
+                raise APIAuthenticationError(provider=model_prefix, model=model_name)
+            elif "permission" in error_msg or "forbidden" in error_msg:
+                logger.error(f"Permission error for {call_type} with {model_name}: {e}")
+                raise APIPermissionError(provider=model_prefix, model=model_name)
+            else:
+                logger.error(f"Unexpected API error generating {call_type} with {model_name} (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt + random.uniform(0, 0.5)
+                    logger.info(f"Retrying in {wait_time:.2f} seconds...")
+                    time.sleep(wait_time)
+                else:
+                    raise LLMGenerationError(
+                        f"API error: {e}",
+                        model=model_name,
+                        section=call_type,
+                        attempt=attempt + 1
+                    )
+        except Exception as e:
+            # Handle Google Gemini and other exceptions
+            error_msg = str(e).lower()
+            if "quota" in error_msg or "rate" in error_msg or "limit" in error_msg:
                 logger.error(f"API rate limit/quota error for {call_type} with {model_name}: {e}")
                 if attempt < max_retries - 1:
                     wait_time = (2 ** attempt) * 2 + random.uniform(0, 0.5)
@@ -169,21 +185,6 @@ def make_llm_call_with_retry(
         except LLMGenerationError:
             # Re-raise LLMGenerationError as-is
             raise
-        except Exception as e:
-            error_type = type(e).__name__
-            error_msg_str = str(e)
-            logger.error(f"Unexpected error generating {call_type} with {model_name} (attempt {attempt + 1}): {error_type} - {error_msg_str}")
-            if attempt < max_retries - 1:
-                wait_time = 2 ** attempt + random.uniform(0, 0.5)
-                logger.info(f"Retrying in {wait_time:.2f} seconds...")
-                time.sleep(wait_time)
-            else:
-                raise LLMGenerationError(
-                    f"{error_type}: {error_msg_str}",
-                    model=model_name,
-                    section=call_type,
-                    attempt=attempt + 1
-                )
     
     # If we get here, all retries failed
     raise LLMGenerationError(

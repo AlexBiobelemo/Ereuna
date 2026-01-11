@@ -330,7 +330,6 @@ class SessionStateManager:
     
     @staticmethod
     def store_hierarchical_data(
-        self,
         master_outline: list,
         volume_plans: list,
         volume_contents: dict,
@@ -401,6 +400,11 @@ class SessionStateManager:
         """
         completed = st.session_state.get('completed_volumes', []) or []
         total = st.session_state.get('total_volumes', 0)
+        try:
+            total = int(total)
+        except (ValueError, TypeError):
+            logger.warning(f"Invalid total_volumes value: {total}, defaulting to 0")
+            total = 0
         return len(completed) >= total and total > 0
     
     @staticmethod
@@ -552,7 +556,12 @@ class SessionStateManager:
         Returns:
             Sections per volume
         """
-        return st.session_state.get('sections_per_volume', 10)
+        value = st.session_state.get('sections_per_volume', 10)
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            logger.warning(f"Invalid sections_per_volume value: {value}, defaulting to 10")
+            return 10
     
     @staticmethod
     def get_total_target_sections() -> int:
@@ -562,7 +571,12 @@ class SessionStateManager:
         Returns:
             Total target sections
         """
-        return st.session_state.get('total_target_sections', 20)
+        value = st.session_state.get('total_target_sections', 20)
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            logger.warning(f"Invalid total_target_sections value: {value}, defaulting to 20")
+            return 20
     
     @staticmethod
     def is_checkpoint_resume_enabled() -> bool:

@@ -14,6 +14,7 @@ Author: Ereuna Development Team
 import os
 import logging
 import zipfile
+import json
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
 from datetime import datetime
@@ -204,6 +205,11 @@ class ModularExporter:
         # Use the existing docx_generator's method
         self.docx_generator._add_markdown_content(document, markdown_text)
     
+    def _convert_markdown_to_docx_no_headings(self, document: Document, markdown_text: str):
+        """Convert markdown content to DOCX without processing headings (to avoid duplication)."""
+        # Use a modified version that skips heading processing
+        self.docx_generator._add_markdown_content_no_headings(document, markdown_text)
+    
     def export_single_volume(
         self,
         volume_number: int,
@@ -251,8 +257,8 @@ class ModularExporter:
             # Add section heading
             heading = document.add_heading(title, level=1)
             
-            # Add content
-            self._convert_markdown_to_docx(document, content)
+            # Add content (skip heading processing since we already added it)
+            self._convert_markdown_to_docx_no_headings(document, content)
             
             # Add page break between major sections
             if self.export_options.page_size == "A4":
@@ -378,8 +384,8 @@ class ModularExporter:
             # Add volume separator
             if self.export_options.cross_reference_volumes:
                 vol_note = document.add_paragraph()
-                vol_note.add_run(f"This is {vol_title}. Cross-references to other volumes are noted throughout.")
-                vol_note.paragraph_format.font.italic = True
+                run = vol_note.add_run(f"This is {vol_title}. Cross-references to other volumes are noted throughout.")
+                run.font.italic = True
                 vol_note.paragraph_format.space_after = Pt(12)
             
             # Add sections for this volume
@@ -514,10 +520,6 @@ class ModularExporter:
                 for v in self.exported_volumes
             ]
         }
-
-
-# Import json for manifest creation
-import json
 
 
 def create_modular_exporter(
